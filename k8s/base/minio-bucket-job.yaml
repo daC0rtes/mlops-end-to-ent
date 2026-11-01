@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-mlflow-bucket
+  namespace: mlops
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        fsGroup: 65532
+      volumes:
+        - name: mc-config
+          emptyDir: {}
+      initContainers:
+        - name: configure-client
+          image: cgr.dev/chainguard/minio-client:latest
+          command: ["/usr/bin/mc"]
+          args:
+            - --config-dir
+            - /mc
+            - alias
+            - set
+            - local
+            - http://minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+          envFrom:
+            - secretRef:
+                name: minio-credentials
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc
+      containers:
+        - name: create-bucket
+          image: cgr.dev/chainguard/minio-client:latest
+          command: ["/usr/bin/mc"]
+          args:
+            - --config-dir
+            - /mc
+            - mb
+            - --ignore-existing
+            - local/mlflow
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc

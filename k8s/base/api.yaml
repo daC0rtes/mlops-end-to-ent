@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: diabetes-api-config
+  namespace: mlops
+data:
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+  AWS_DEFAULT_REGION: us-east-1
+  MODEL_NAME: diabetes_readmission
+  MODEL_ALIAS: champion
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: diabetes-api
+  namespace: mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: diabetes-api
+  template:
+    metadata:
+      labels:
+        app: diabetes-api
+    spec:
+      containers:
+        - name: diabetes-api
+          image: dac0rtes/mlops-diabetes-api@sha256:f100a75fb73d4b7f0129357d0ce4c09cec79e0c86edee4995e601de194142d1e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: diabetes-api-config
+                  key: MLFLOW_TRACKING_URI
+            - name: MLFLOW_S3_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: diabetes-api-config
+                  key: MLFLOW_S3_ENDPOINT_URL
+            - name: AWS_DEFAULT_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: diabetes-api-config
+                  key: AWS_DEFAULT_REGION
+            - name: MODEL_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: diabetes-api-config
+                  key: MODEL_NAME
+            - name: MODEL_ALIAS
+              valueFrom:
+                configMapKeyRef:
+                  name: diabetes-api-config
+                  key: MODEL_ALIAS
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 25
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: diabetes-api
+  namespace: mlops
+spec:
+  selector:
+    app: diabetes-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

@@ -1,0 +1,24 @@
+# Credenciales y secretos
+.env
+.env.*
+*.pem
+*.key
+**/secrets.yaml
+**/*secret*.yaml
+
+# Datos descargados o generados
+data/*.csv
+data/*.parquet
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Archivos locales de herramientas
+.airflow/
+logs/
+.DS_Store
+minio/

@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streamlit-config
+  namespace: mlops
+data:
+  API_BASE_URL: http://diabetes-api:8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit
+  namespace: mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamlit
+  template:
+    metadata:
+      labels:
+        app: streamlit
+    spec:
+      containers:
+        - name: streamlit
+          image: dac0rtes/mlops-streamlit@sha256:e32122033ffbf7d082c42ea5df5409ca08ea5f9bb07f9ea459f12b20703f9d88
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: streamlit-config
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamlit
+  namespace: mlops
+spec:
+  selector:
+    app: streamlit
+  ports:
+    - name: http
+      port: 8501
+      targetPort: http

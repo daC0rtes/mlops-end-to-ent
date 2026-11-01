@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-config
+  namespace: mlops
+data:
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+  AIRFLOW__CORE__PARALLELISM: "2"
+  AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "1"
+  AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "1"
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+  AWS_DEFAULT_REGION: us-east-1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      containers:
+        - name: scheduler
+          image: dac0rtes/mlops-airflow@sha256:c5d26001a298ed4155efc49ff5b210e7619162e27e2fbb76e31132f3c3823d7b
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -ec
+            - |
+              export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow"
+              exec airflow scheduler
+          envFrom:
+            - configMapRef:
+                name: airflow-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-secrets
+                  key: AIRFLOW__CORE__FERNET_KEY
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          livenessProbe:
+              exec:
+                command:
+                  - bash
+                  - -ec
+                  - ps -ef | grep -q "[a]irflow scheduler"
+              initialDelaySeconds: 90
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 5
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-webserver
+  namespace: mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-webserver
+  template:
+    metadata:
+      labels:
+        app: airflow-webserver
+    spec:
+      containers:
+        - name: webserver
+          image: dac0rtes/mlops-airflow@sha256:c5d26001a298ed4155efc49ff5b210e7619162e27e2fbb76e31132f3c3823d7b
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          command:
+            - bash
+            - -ec
+            - |
+              export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow"
+              exec airflow webserver
+          envFrom:
+            - configMapRef:
+                name: airflow-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-secrets
+                  key: AIRFLOW__CORE__FERNET_KEY
+            - name: AIRFLOW__WEBSERVER__SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-secrets
+                  key: AIRFLOW__WEBSERVER__SECRET_KEY
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-webserver
+  namespace: mlops
+spec:
+  selector:
+    app: airflow-webserver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
