@@ -313,3 +313,11 @@ Ejemplo:
 kubectl -n mlops port-forward --address 0.0.0.0 \
   svc/streamlit 8005:8501
 ```
+
+---
+
+## 🎥 Video de sustentación
+
+La demostración completa de la plataforma, incluida la arquitectura, ejecución del DAG, serving, observabilidad y prueba de carga, está disponible en YouTube:
+
+👉 [Ver video de sustentación: MLOps end-to-end](https://youtu.be/QKW2p3kzock)
