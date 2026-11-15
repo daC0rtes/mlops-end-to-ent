@@ -1,21 +1,23 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: diabetes-bootstrap-training
+  name: property-price-training
   namespace: mlops
 spec:
   backoffLimit: 0
   template:
     metadata:
       labels:
-        app: diabetes-trainer
+        app: property-trainer
     spec:
       restartPolicy: Never
       containers:
         - name: trainer
-          image: dac0rtes/mlops-diabetes-trainer@sha256:10c20e880425c22ac1d1c30ebef525de6ffa3543fe39eab909880f82c4c82368
+          image: dac0rtes/mlops-property-trainer:sha-9b45bd8560a3153cc93b8acba9fc09ebcb268fbf
           imagePullPolicy: IfNotPresent
           env:
+            - name: GIT_COMMIT
+              value: "9b45bd8560a3153cc93b8acba9fc09ebcb268fbf"
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
@@ -47,8 +49,8 @@ spec:
                   key: MINIO_ROOT_PASSWORD
           resources:
             requests:
-              cpu: "1"
-              memory: 1Gi
+              cpu: "500m"
+              memory: 768Mi
             limits:
               cpu: "2"
-              memory: 3Gi
+              memory: 2Gi
