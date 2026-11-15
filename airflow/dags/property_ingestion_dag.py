@@ -171,6 +171,60 @@ with DAG(
         return {"batch_id": batch_id}
 
     @task
+    def validate_bronze(bronze_result):
+        batch_id = bronze_result["batch_id"]
+        required_columns = {
+            "brokered_by", "status", "price", "bed", "bath", "acre_lot",
+            "street", "city", "state", "zip_code", "house_size", "prev_sold_date",
+        }
+        numeric_columns = {
+            "brokered_by", "price", "bed", "bath", "acre_lot",
+            "street", "zip_code", "house_size",
+        }
+
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload FROM raw.property_batches WHERE batch_id = %s",
+                (batch_id,),
+            )
+            records = json.loads(cur.fetchone()[0])["data"]
+
+            missing_columns = sorted(required_columns - set(records[0]))
+            valid_prices = sum(
+                isinstance(record.get("price"), (int, float))
+                and record["price"] > 0
+                for record in records
+            )
+            invalid_numeric = sum(
+                value is not None
+                and (not isinstance(value, (int, float)) or value < 0)
+                for record in records
+                for key, value in record.items()
+                if key in numeric_columns
+            )
+            price_valid_ratio = valid_prices / len(records)
+
+            validation_results = {
+                "required_columns_missing": missing_columns,
+                "price_valid_ratio": round(price_valid_ratio, 6),
+                "invalid_numeric_values": invalid_numeric,
+                "quality_passed": not missing_columns and price_valid_ratio >= 0.80,
+            }
+
+            cur.execute("""
+                UPDATE mlops.batch_audit
+                SET validation_results = validation_results || %s::jsonb,
+                    result = 'validated_bronze',
+                    updated_at = NOW()
+                WHERE batch_id = %s
+            """, (json.dumps(validation_results), batch_id))
+
+        if missing_columns or price_valid_ratio < 0.80:
+            raise ValueError(f"El batch {batch_id} no superó la validación.")
+
+        return bronze_result
+
+    @task
     def build_silver(bronze_result):
         batch_id = bronze_result["batch_id"]
 
@@ -288,7 +342,8 @@ with DAG(
 
     prepare = prepare_storage()
     bronze = fetch_bronze_batch()
-    silver = build_silver(bronze)
+    validated = validate_bronze(bronze)
+    silver = build_silver(validated)
     gold = build_gold(silver)
 
-    prepare >> bronze >> silver >> gold
+    prepare >> bronze >> validated >> silver >> gold
