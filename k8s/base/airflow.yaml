@@ -77,15 +77,12 @@ spec:
               cpu: "1"
               memory: 2Gi
           livenessProbe:
-              exec:
-                command:
-                  - bash
-                  - -ec
-                  - ps -ef | grep -q "[a]irflow scheduler"
-              initialDelaySeconds: 90
-              periodSeconds: 30
-              timeoutSeconds: 5
-              failureThreshold: 5
+            tcpSocket:
+              port: 8793
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
 
 ---
 apiVersion: apps/v1
