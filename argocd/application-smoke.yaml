@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-smoke
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/daC0rtes/mlops-end-to-ent.git
+    targetRevision: main
+    path: k8s/gitops-smoke
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitops-smoke
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
