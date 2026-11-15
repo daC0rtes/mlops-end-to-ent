@@ -101,6 +101,12 @@ with DAG(
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            cur.execute(
+                "ALTER TABLE mlops.batch_audit ADD COLUMN IF NOT EXISTS silver_records INTEGER"
+            )
+            cur.execute(
+                "ALTER TABLE mlops.batch_audit ADD COLUMN IF NOT EXISTS gold_records INTEGER"
+            )
 
     @task(retries=3, retry_delay=timedelta(seconds=15))
     def fetch_bronze_batch():
