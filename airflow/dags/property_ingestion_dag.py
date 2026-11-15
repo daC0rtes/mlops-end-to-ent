@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from urllib.error import HTTPError
+from airflow.exceptions import AirflowSkipException
+
 import psycopg2
 from airflow import DAG
 from airflow.decorators import task
@@ -113,8 +116,15 @@ with DAG(
         context = get_current_context()
         source_url = f"{API_URL}?{urlencode({'group_number': GROUP_NUMBER})}"
 
-        with urlopen(source_url, timeout=90) as response:
-            body = response.read().decode("utf-8")
+        try:
+            with urlopen(source_url, timeout=90) as response:
+                body = response.read().decode("utf-8")
+        except HTTPError as error:
+            if error.code == 400:
+                raise AirflowSkipException(
+                    "La API no tiene más lotes disponibles para este grupo."
+                ) from error
+            raise
 
         payload = json.loads(body)
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
