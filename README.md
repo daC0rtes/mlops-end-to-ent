@@ -1,32 +1,27 @@
-# 🏥 MLOps end-to-end: predicción de readmisión temprana en diabetes
+# 🏠 Proyecto Final MLOps: predicción de precios inmobiliarios
 
 <p align="center">
   <img src="https://img.shields.io/badge/Kubernetes-K3s-326CE5?logo=kubernetes&logoColor=white" alt="K3s" />
+  <img src="https://img.shields.io/badge/Apache%20Airflow-Orquestación-017CEE?logo=apache-airflow&logoColor=white" alt="Airflow" />
   <img src="https://img.shields.io/badge/MLflow-Model%20Registry-0194E2?logo=mlflow&logoColor=white" alt="MLflow" />
-  <img src="https://img.shields.io/badge/Airflow-Orquestación-017CEE?logo=apache-airflow&logoColor=white" alt="Airflow" />
-  <img src="https://img.shields.io/badge/FastAPI-Serving-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/Prometheus-Grafana-EE5A29?logo=prometheus&logoColor=white" alt="Observabilidad" />
+  <img src="https://img.shields.io/badge/Argo%20CD-GitOps-EF7B4D?logo=argo&logoColor=white" alt="Argo CD" />
+  <img src="https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF?logo=github-actions&logoColor=white" alt="GitHub Actions" />
 </p>
 
-Este proyecto implementa una plataforma MLOps reproducible para estimar la probabilidad de **readmisión hospitalaria antes de 30 días** en pacientes con diabetes. No se limita a entrenar un modelo: automatiza la ingesta, transformación, entrenamiento, registro, serving, auditoría, observabilidad y prueba de carga en Kubernetes.
+Plataforma MLOps end-to-end para estimar el precio de inmuebles. El proyecto procesa lotes incrementales entregados por una API docente, conserva trazabilidad por capas **Bronze / Silver / Gold**, entrena y registra un modelo en MLflow, publica predicciones mediante FastAPI y las expone en Streamlit.
 
-## 🎯 Resultado principal
-
-- **101.766** encuentros clínicos procesados.
-- Modelo registrado: `diabetes_readmission`, versión `1`, alias **`champion`**.
-- Ejecución de Airflow con carga incremental de máximo **15.000 registros por lote**.
-- **7.884 inferencias** auditadas en PostgreSQL.
-- Prueba de carga: **1.868 predicciones exitosas**, **26,3 RPS** y **p95 de 204,23 ms**.
-
-> El objetivo clínico es anticipar readmisiones tempranas (`readmitted == "<30"`). La clase positiva representa el 11,16 % del dataset, por lo cual la selección del modelo privilegia F1 de la clase positiva, junto con recall, ROC-AUC y PR-AUC; no únicamente accuracy.
+El despliegue está diseñado para una VM de recursos limitados: K3s, almacenamiento persistente acotado, imágenes versionadas y GitOps con Argo CD.
 
 ---
 
-## 🎥 Video de sustentación
+## 🎯 Resultado actual
 
-La demostración completa de la plataforma, incluida la arquitectura, ejecución del DAG, serving, observabilidad y prueba de carga, está disponible en YouTube:
-
-👉 [Ver video de sustentación: MLOps end-to-end](https://youtu.be/QKW2p3kzock)
+- Ingesta incremental real desde `cristiandiaz13/mlops-puj:data-api-pf-v2`, grupo 5.
+- DAG `property_batch_ingestion` ejecutado exitosamente con persistencia Bronze, Silver y Gold.
+- Modelo `property_price_model`, versión **1**, alias **`champion`** en MLflow.
+- Primera evaluación: **MAE 41.027,94**, **RMSE 49.531,39** y **R² 0,2332**.
+- API de predicción, interfaz Streamlit, Prometheus, Grafana y Locust conectados al caso de precios.
+- Cadena de despliegue demostrada: `push a main → GitHub Actions → Docker Hub → manifiesto GitOps → Argo CD → K3s`.
 
 ---
 
@@ -34,207 +29,163 @@ La demostración completa de la plataforma, incluida la arquitectura, ejecución
 
 ```mermaid
 flowchart TB
-    U[Usuario] --> ST[Streamlit]
-    ST --> API[FastAPI<br/>/health - /predict - /model-info - /metrics]
-    L[Locust] --> API
+    SRC[API docente<br/>lotes inmobiliarios] --> AF[Airflow<br/>property_batch_ingestion]
 
-    subgraph K3S[K3s / Kubernetes - namespace mlops]
-        AF[Airflow DAG] --> PG[(PostgreSQL)]
-        AF --> TR[Entrenamiento]
-        TR --> MLF[MLflow]
-        MLF --> MINIO[MinIO / S3]
-        API --> MLF
-        API --> PG
+    subgraph K3S[K3s / namespace mlops]
+        AF --> BR[(PostgreSQL<br/>Bronze / raw)]
+        BR --> SI[(PostgreSQL<br/>Silver / clean)]
+        SI --> GO[(PostgreSQL<br/>Gold)]
+        GO --> TR[Job de entrenamiento]
+        TR --> MLF[MLflow Model Registry]
+        MLF --> MINIO[MinIO / artefactos]
+
+        API[FastAPI<br/>property-api] --> MLF
+        API --> LOGS[(PostgreSQL<br/>inference_logs)]
+        ST[Streamlit] --> API
+        LOC[Locust] --> API
         PROM[Prometheus] -->|scrape /metrics| API
-        GRAF[Grafana] -->|consultas| PROM
+        GRAF[Grafana] --> PROM
     end
 
-    PG --- RAW[raw.patient_records]
-    PG --- CLEAN[clean.patient_features]
-    PG --- LOGS[mlops.inference_logs]
+    GH[GitHub Actions] --> DH[Docker Hub]
+    DH --> K3S
+    GH --> GIT[Repositorio / main]
+    GIT --> ARGO[Argo CD]
+    ARGO --> K3S
 ```
 
-### Flujo de datos y serving
+### Flujo end-to-end
 
 ```text
-Google Drive / Diabetes.csv
-        ↓
-Airflow: validación → carga incremental → calidad → transformación
-        ↓
-PostgreSQL: raw → clean
-        ↓
-Entrenamiento → MLflow Model Registry → alias champion
-        ↓                                  ↘ MinIO: artefactos
-FastAPI → Streamlit / Locust → PostgreSQL: inference_logs
-        ↓
-Prometheus (/metrics) → Grafana
-```
-
-> Grafana consulta métricas en Prometheus; Prometheus hace *scrape* del endpoint `/metrics` de FastAPI. **Loki no hace parte de este despliegue**: los logs se revisan con `kubectl logs` y la auditoría estructurada vive en PostgreSQL.
-
----
-
-## ☸️ Kubernetes: evidencia del clúster
-
-Se utilizó **K3s**, una distribución ligera y compatible con Kubernetes, adecuada para una VM de recursos limitados. Se mantuvieron los conceptos estándar de Kubernetes: Pods, Deployments, StatefulSets, Services, ConfigMaps, Secrets, Jobs y PVCs.
-
-<img src="./uso%20kubernetes.png" alt="Nodo K3s en estado Ready" width="100%" />
-
-Los manifiestos de la infraestructura están en [`k8s/base/`](./k8s/base) y permiten declarar el estado deseado de la plataforma mediante `kubectl apply -f`.
-
-| Recurso | Uso en el proyecto |
-|---|---|
-| `Deployment` | MLflow, Airflow, FastAPI, Streamlit, Prometheus, Grafana y Locust. |
-| `StatefulSet` | PostgreSQL y MinIO, por requerir almacenamiento persistente. |
-| `Service` | Direcciones internas estables como `diabetes-api:8000` y `postgres:5432`. |
-| `PVC` | Persistencia para PostgreSQL, MinIO, Prometheus y Grafana. |
-| `Job` | Inicialización de bucket y primer entrenamiento reproducible. |
-
----
-
-## 🐳 Imágenes propias y Docker Hub
-
-Las aplicaciones propias se construyeron y publicaron en Docker Hub. Los manifiestos las consumen por tag o digest SHA-256 para evitar depender de imágenes locales de la VM.
-
-<img src="./uso%20dockerhub.png" alt="Repositorios Docker Hub del proyecto" width="100%" />
-
-| Imagen | Responsabilidad |
-|---|---|
-| `dac0rtes/mlops-mlflow` | Servidor MLflow con dependencias compatibles. |
-| `dac0rtes/mlops-diabetes-trainer` | Descarga, ingesta, transformación y entrenamiento inicial. |
-| `dac0rtes/mlops-diabetes-api` | Serving FastAPI y métricas Prometheus. |
-| `dac0rtes/mlops-airflow` | DAG y dependencias de orquestación. |
-| `dac0rtes/mlops-streamlit` | Interfaz de predicción. |
-
-Ejemplo de referencia inmutable en un manifiesto:
-
-```yaml
-image: dac0rtes/mlops-streamlit@sha256:e32122033ffbf7d082c42ea5df5409ca08ea5f9bb07f9ea459f12b20703f9d88
+Nuevo lote de datos
+  → Airflow: Bronze → validación → Silver → Gold
+  → Job de entrenamiento
+  → MLflow: versión y alias champion
+  → FastAPI: /predict, auditoría y métricas
+  → Streamlit y Locust consumen la API
+  → Prometheus / Grafana observan el serving
+  → GitHub Actions y Argo CD versionan y despliegan cambios
 ```
 
 ---
 
-## 🗃️ Persistencia y trazabilidad
+## 🥉🥈🥇 Capas de datos
 
-Una sola instancia PostgreSQL (`postgres-0`) hospeda bases lógicas separadas para reducir consumo de la VM sin mezclar responsabilidades:
+| Capa | Tabla | Propósito |
+|---|---|---|
+| Bronze / RAW | `raw.property_batches` | Respuesta original de cada lote, identificador, fecha, hash, conteo y payload como texto. |
+| Silver / CLEAN | `clean.property_records` | Registros normalizados y deduplicados por `row_hash`. |
+| Gold | `gold.property_training_features` | Variables tipadas listas para entrenar el modelo de precio. |
+| Auditoría | `mlops.batch_audit` | Esquema recibido, validaciones, conteos y resultado por lote. |
 
-```text
-PostgreSQL
-├── airflow: metadatos de DAGs, runs, tareas, XCom y jobs
-└── mlops
-    ├── raw.patient_records       datos originales
-    ├── clean.patient_features    características transformadas
-    └── mlops.inference_logs      auditoría de serving
-```
-
-Cada registro original contiene `batch_id`, `source_file`, `row_hash`, `payload` JSONB y fecha de carga. El hash único evita duplicados ante reintentos.
-
-<img src="./carga%20incremental%20y%20raw.png" alt="Consulta de registros raw y lotes incrementales" width="100%" />
+La respuesta RAW se almacena como `TEXT`, no como JSONB completo. Un lote real de 16,4 MB produjo `OOMKilled` al transformarlo directamente en PostgreSQL con 1 GiB; conservar el cuerpo original y transformar por etapas controla el consumo de memoria.
 
 ---
 
 ## 🔄 Orquestación con Airflow
 
-El DAG `diabetes_mlops_pipeline` automatiza y hace visible el pipeline completo:
+El DAG `property_batch_ingestion` procesa un evento de datos por ejecución:
 
 ```text
-validate_source
-  → incremental_load
-  → validate_raw_quality
-  → preprocess
-  → store_clean_data
-  → split_dataset
-  → train_model
-  → register_model
-  → compare_models
-  → promote_champion
+prepare_storage
+  → fetch_bronze_batch
+  → validate_bronze
+  → build_silver
+  → build_gold
 ```
 
-<img src="./airflow%20dags.png" alt="DAG de Airflow ejecutado exitosamente" width="100%" />
+Controles incluidos:
 
-La carga incremental usa `BATCH_SIZE = 15000`; cada lote queda identificado con `batch_id`. La evidencia muestra tanto el límite configurado como el resultado persistido.
-
-<img src="./airflow%20batch%20size%2015000.png" alt="Batch size de 15000 configurado en Airflow" width="100%" />
-
-### Manejo de errores
-
-El DAG valida fuente y calidad de datos antes de permitir transformación, entrenamiento o promoción. Si una regla falla, la tarea queda en error, Airflow bloquea las tareas dependientes y el incidente queda registrado en los metadatos de la base `airflow`.
+- Consulta incremental: cada llamada consume un lote nuevo del grupo asignado.
+- Validación de columnas esperadas y proporción válida de precios.
+- Deduplicación por hash en Silver.
+- Auditoría de conteos Bronze, Silver y Gold.
+- HTTP 400 por lotes agotados tratado como final controlado, no como caída del DAG.
 
 ---
 
-## 🧪 Experimentos, artefactos y modelo Champion
+## 🧪 Modelo, registro y promoción
 
-MLflow centraliza parámetros, métricas, runs y versiones del modelo. PostgreSQL conserva los metadatos; MinIO, compatible con S3, conserva los artefactos del modelo.
+El Job `property-price-training` lee Gold y usa una muestra máxima de 75.000 filas para respetar los límites de memoria de la VM. El modelo es un `HistGradientBoostingRegressor` con tratamiento de variables numéricas y categóricas.
 
-| Métrica de prueba | Resultado |
-|---|---:|
-| F1 positiva | 0,2625 |
-| Precision positiva | 0,1724 |
-| Recall positivo | 0,5500 |
-| ROC-AUC | 0,6516 |
-| PR-AUC | 0,2089 |
-
-<img src="./mlflow.png" alt="Modelo registrado en MLflow" width="100%" />
-
-<img src="./minio.png" alt="Artefactos de MLflow almacenados en MinIO" width="100%" />
-
-La API resuelve el modelo mediante:
+MLflow registra parámetros, métricas, contrato de datos y el artefacto del modelo. La API resuelve siempre:
 
 ```text
-models:/diabetes_readmission@champion
+models:/property_price_model@champion
 ```
 
-De esta forma, una promoción de modelo no obliga a cambiar el contrato de FastAPI ni de Streamlit.
+Esto separa el código de serving de la versión concreta del modelo: si se promueve una versión nueva, FastAPI puede cargar el alias `champion` sin cambiar su contrato.
 
 ---
 
-## 🚀 Serving: FastAPI y Streamlit
+## 🚀 Serving e interfaz
 
-FastAPI es la única puerta de serving. Expone:
+### FastAPI
 
-| Endpoint | Función |
+`property-api` expone:
+
+| Endpoint | Uso |
 |---|---|
-| `GET /health` | Estado del servicio. |
-| `GET /model-info` | Nombre, alias y versión del modelo activo. |
-| `POST /predict` | Predicción validada y auditada. |
-| `GET /metrics` | Métricas para Prometheus. |
+| `GET /health` | Comprueba disponibilidad de PostgreSQL y del modelo. |
+| `GET /model-info` | Nombre, alias, versión y variables esperadas. |
+| `POST /predict` | Valida el contrato, estima precio y registra auditoría. |
+| `GET /metrics` | Métricas Prometheus de predicciones, errores, latencia y modelo cargado. |
 
-Streamlit consume exclusivamente FastAPI; no accede directamente a PostgreSQL, MinIO ni MLflow. Cada predicción registra `request_id`, entrada, salida, score, modelo, versión y latencia en `mlops.inference_logs`.
+Cada inferencia guarda `request_id`, payload, precio estimado, modelo, versión y latencia en `mlops.inference_logs`.
 
-<img src="./streamlit.png" alt="Interfaz Streamlit con predicción de readmisión" width="100%" />
+### Streamlit
+
+La interfaz solicita las características del inmueble y consume exclusivamente `property-api`. No se conecta directamente a PostgreSQL, MinIO ni MLflow.
 
 ---
 
-## 📈 Observabilidad y prueba de carga
+## 📈 Observabilidad y carga
 
-Prometheus realiza *scrape* de FastAPI cada 5 segundos. Grafana presenta solicitudes exitosas, errores de validación, RPS y latencia p95. La carga se genera con Locust desde un Pod que llama al Service interno `diabetes-api:8000`.
+- **Prometheus** hace scrape de `property-api:8000/metrics` cada 5 segundos.
+- **Grafana** muestra predicciones, errores, estado del modelo `champion`, latencia p95 y tasa de error.
+- **Locust** simula usuarios contra el Service interno `property-api:8000`; 80% de las tareas usan `/predict` y 20% `/health`.
 
-<img src="./locust%20una%20hora.png" alt="Locust ejecutando prueba de carga contra FastAPI" width="100%" />
+La carga se mantiene controlada para la VM: se recomienda iniciar con 5 usuarios y tasa de spawn 1 usuario/segundo.
 
-<img src="./grafana%20funcionando.png" alt="Dashboard Grafana durante prueba de carga" width="100%" />
+---
 
-| Indicador observado | Resultado |
-|---|---:|
-| Usuarios virtuales | 10 |
-| Solicitudes exitosas visibles | 1.868 |
-| RPS observado | 26,3 |
-| Latencia p95 | 204,23 ms |
-| Errores de validación controlados | 1 |
-| Inferencias auditadas al cierre | 7.884 |
-| Latencia promedio auditada | 57,21 ms |
+## 🔁 CI/CD y GitOps
+
+### GitHub Actions
+
+Los workflows construyen imágenes versionadas con el SHA del commit:
+
+| Workflow | Imagen |
+|---|---|
+| `build-airflow.yml` | `dac0rtes/mlops-airflow:sha-<commit>` |
+| `build-trainer.yml` | `dac0rtes/mlops-property-trainer:sha-<commit>` |
+| `build-property-api.yml` | `dac0rtes/mlops-property-api:sha-<commit>` |
+| `build-property-streamlit.yml` | `dac0rtes/mlops-property-streamlit:sha-<commit>` |
+
+Para API y Streamlit, un push a `main` construye la imagen, actualiza automáticamente el tag correspondiente en el manifiesto y hace commit de despliegue. El cambio de manifiesto no dispara un bucle de build.
+
+### Argo CD
+
+La Application `mlops-platform` observa `main/k8s` y se validó como **Synced / Healthy**. El archivo `k8s/kustomization.yaml` define los servicios que Argo administra:
+
+```text
+data-api · Airflow · property-api · Prometheus · Grafana · Streamlit · Locust
+```
+
+El Job de entrenamiento está deliberadamente fuera de esa lista: una sincronización GitOps no debe relanzar un entrenamiento por accidente.
 
 ---
 
 ## 🛠️ Retos técnicos y decisiones
 
-| Reto | Solución aplicada | Aprendizaje |
+| Reto | Decisión | Aprendizaje |
 |---|---|---|
-| Rango de red de K3s se solapaba con la red de la VM. | Reinstalación con Pods `10.244.0.0/16` y Services `10.245.0.0/16`. | Validar CIDRs antes de desplegar. |
-| `DiskPressure` expulsaba Pods. | Retiro dirigido de Rancher y recursos de prácticas previas; revisión de disco y runtime. | No hacer limpieza indiscriminada de volúmenes. |
-| Imagen inicial de MinIO no estaba disponible. | Uso de imagen mantenida de Chainguard y ajuste del Job de bucket. | Verificar disponibilidad y capacidades reales de las imágenes. |
-| MLflow fallaba con SQLAlchemy reciente. | Fijar `SQLAlchemy==2.0.54`, reconstruir y publicar imagen. | Fijar versiones de dependencias críticas. |
-| Scheduler de Airflow reiniciaba. | Reemplazar probe pesado por verificación ligera del proceso. | Un probe debe medir salud sin provocar falsos positivos. |
-| Servicios no eran visibles fuera del clúster. | `ClusterIP` interno + `kubectl port-forward` y firewall 8000-8007. | Separar red interna de la exposición temporal para demo. |
+| `/var` se llenó con datos de K3s. | Migración a `/opt/k3s-data`. | Revisar disco antes de descargar imágenes o escalar servicios. |
+| Data API fallaba con 256 MiB. | Límite de 1 GiB y probes TCP. | La memoria debe dimensionarse con lotes reales. |
+| PostgreSQL fue OOM al usar JSONB completo. | RAW como `TEXT`; transformación por capas. | Preservar trazabilidad no implica transformar todo en memoria. |
+| Scheduler Airflow se reiniciaba. | Sonda TCP al puerto 8793. | Un liveness probe mal diseñado puede causar la falla que pretende detectar. |
+| Grafana conservó metadatos del dashboard antiguo. | UID y archivo de provisión nuevos. | ConfigMaps y PVCs pueden tener tiempos de actualización diferentes. |
+| Rama Git tuvo conflicto tras Squash merge. | Rebase con backup y `--force-with-lease`. | Squash cambia la historia; no reutilizar una rama fusionada sin rebasarla. |
 
 ---
 
@@ -242,78 +193,44 @@ Prometheus realiza *scrape* de FastAPI cada 5 segundos. Grafana presenta solicit
 
 ```text
 .
-├── airflow/
-│   ├── dags/diabetes_mlops_dag.py
-│   ├── Dockerfile
-│   └── requirements.txt
-├── api/
-├── k8s/base/
-│   ├── postgres.yaml
-│   ├── minio.yaml
-│   ├── mlflow.yaml
-│   ├── airflow.yaml
-│   ├── api.yaml
-│   ├── streamlit.yaml
-│   ├── prometheus.yaml
-│   ├── grafana.yaml
-│   ├── locust.yaml
-│   └── trainer-job.yaml
-├── locust/
-├── mlflow/
-├── streamlit/
-├── trainer/
-└── docs/
-    └── guion_video_mlops_diabetes.pdf
+├── .github/workflows/      # CI y actualización de tags GitOps
+├── airflow/dags/           # property_ingestion_dag.py
+├── api/                    # FastAPI de serving
+├── argocd/                 # Application mlops-platform
+├── k8s/
+│   ├── base/               # Manifiestos Kubernetes
+│   └── kustomization.yaml  # Alcance administrado por Argo CD
+├── locust/                 # Prueba de carga
+├── streamlit/              # Interfaz de precio
+├── trainer/                # Entrenamiento y registro MLflow
+└── docs/                   # Handoff y material de sustentación
 ```
 
 ---
 
-## ▶️ Reproducción resumida
+## ▶️ Operación y demo local
 
-### 1. Verificar el clúster
-
-```bash
-kubectl get nodes -o wide
-kubectl top nodes
-kubectl get storageclass
-```
-
-### 2. Desplegar por dependencias
+### Salud mínima
 
 ```bash
-kubectl apply -f k8s/base/postgres.yaml
-kubectl apply -f k8s/base/minio.yaml
-kubectl apply -f k8s/base/mlflow.yaml
-kubectl apply -f k8s/base/airflow.yaml
-kubectl apply -f k8s/base/api.yaml
-kubectl apply -f k8s/base/streamlit.yaml
-kubectl apply -f k8s/base/prometheus.yaml
-kubectl apply -f k8s/base/grafana.yaml
-kubectl apply -f k8s/base/locust.yaml
+df -h / /var /home
+kubectl top node
+kubectl -n mlops get pods
+kubectl -n argocd get applications
 ```
 
-> Las credenciales no se publican en Git. Antes del despliegue deben crearse los Secrets de PostgreSQL, MinIO, Airflow y Grafana con valores propios.
+### Interfaces de demostración
 
-### 3. Validar el estado
-
-```bash
-kubectl -n mlops get deploy,statefulset,job
-kubectl -n mlops get pods --field-selector=status.phase=Running -o wide
-kubectl -n mlops get svc,pvc
-```
-
-### 4. Exponer interfaces para demo local
-
-| Servicio | URL externa | Port-forward |
+| Servicio | URL | Port-forward |
 |---|---|---|
-| FastAPI / Swagger | `http://IP_VM:8000/docs` | `svc/diabetes-api 8000:8000` |
+| FastAPI / Swagger | `http://IP_VM:8010/docs` | `svc/property-api 8010:8000` |
 | MLflow | `http://IP_VM:8001` | `svc/mlflow 8001:5000` |
-| MinIO | `http://IP_VM:8002` | `svc/minio 8002:9001` |
 | Prometheus | `http://IP_VM:8003` | `svc/prometheus 8003:9090` |
 | Grafana | `http://IP_VM:8004` | `svc/grafana 8004:3000` |
 | Streamlit | `http://IP_VM:8005` | `svc/streamlit 8005:8501` |
 | Locust | `http://IP_VM:8006` | `svc/locust 8006:8089` |
 | Airflow | `http://IP_VM:8007` | `svc/airflow-webserver 8007:8080` |
+| Argo CD | `https://IP_VM:8008` | `svc/argocd-server 8008:443` |
 
 Ejemplo:
 
@@ -321,3 +238,8 @@ Ejemplo:
 kubectl -n mlops port-forward --address 0.0.0.0 \
   svc/streamlit 8005:8501
 ```
+
+> Las credenciales no se publican en Git. Antes de cualquier demostración, confirmar que no existen `DiskPressure` ni Pods en error.
+
+---
+
