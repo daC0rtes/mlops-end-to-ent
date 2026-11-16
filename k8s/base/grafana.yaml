@@ -51,10 +51,10 @@ metadata:
   name: grafana-dashboard
   namespace: mlops
 data:
-  diabetes-api.json: |
+  property-api.json: |
     {
       "title": "MLOps Property Price - API",
-      "uid": "mlops-property-api",
+      "uid": "mlops-property-observability",
       "schemaVersion": 39,
       "version": 1,
       "refresh": "5s",
