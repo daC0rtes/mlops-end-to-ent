@@ -8,3 +8,4 @@ resources:
   - base/prometheus.yaml
   - base/grafana.yaml
   - base/streamlit.yaml
+  - base/locust.yaml
