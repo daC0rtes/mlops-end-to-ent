@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: streamlit
-          image: dac0rtes/mlops-property-streamlit:sha-047605879732da436e73ed913b1b1da83b8675d8
+          image: dac0rtes/mlops-property-streamlit:sha-c598cd26b9f4fbdab00944316c45e63c83db340b
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
