@@ -22,11 +22,11 @@ data:
       evaluation_interval: 5s
 
     scrape_configs:
-      - job_name: diabetes-api
+      - job_name: property-api
         metrics_path: /metrics
         static_configs:
           - targets:
-              - diabetes-api:8000
+              - property-api:8000
 ---
 apiVersion: apps/v1
 kind: Deployment

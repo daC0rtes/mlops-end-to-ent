@@ -5,3 +5,5 @@ resources:
   - base/data-api.yaml
   - base/airflow.yaml
   - base/api.yaml
+  - base/prometheus.yaml
+  - base/grafana.yaml

@@ -53,8 +53,8 @@ metadata:
 data:
   diabetes-api.json: |
     {
-      "title": "MLOps Diabetes - API",
-      "uid": "mlops-diabetes-api",
+      "title": "MLOps Property Price - API",
+      "uid": "mlops-property-api",
       "schemaVersion": 39,
       "version": 1,
       "refresh": "5s",
@@ -67,7 +67,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 },
           "targets": [
-            { "expr": "sum(diabetes_predictions_total)", "refId": "A" }
+            { "expr": "sum(property_predictions_total)", "refId": "A" }
           ],
           "options": {
             "reduceOptions": {
@@ -86,7 +86,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 },
           "targets": [
-            { "expr": "sum(diabetes_prediction_errors_total)", "refId": "A" }
+            { "expr": "sum(property_prediction_errors_total)", "refId": "A" }
           ],
           "options": {
             "reduceOptions": {
@@ -100,12 +100,12 @@ data:
         },
         {
           "id": 3,
-          "title": "Predicciones por segundo",
+          "title": "Modelo champion cargado",
           "type": "stat",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 },
           "targets": [
-            { "expr": "sum(rate(diabetes_predictions_total[1m]))", "refId": "A" }
+            { "expr": "max(property_model_loaded)", "refId": "A" }
           ],
           "options": {
             "reduceOptions": {
@@ -125,7 +125,7 @@ data:
           "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum(rate(diabetes_prediction_latency_seconds_bucket[1m])) by (le))",
+              "expr": "histogram_quantile(0.95, sum(rate(property_prediction_latency_seconds_bucket[1m])) by (le))",
               "refId": "A"
             }
           ],
@@ -154,12 +154,12 @@ data:
           "gridPos": { "h": 9, "w": 12, "x": 0, "y": 7 },
           "targets": [
             {
-              "expr": "sum(rate(diabetes_predictions_total[1m]))",
+              "expr": "sum(rate(property_predictions_total[1m]))",
               "legendFormat": "predicciones exitosas/s",
               "refId": "A"
             },
             {
-              "expr": "sum(rate(diabetes_prediction_errors_total[1m]))",
+              "expr": "sum(rate(property_prediction_errors_total[1m]))",
               "legendFormat": "errores/s",
               "refId": "B"
             }
@@ -173,7 +173,7 @@ data:
           "gridPos": { "h": 9, "w": 12, "x": 12, "y": 7 },
           "targets": [
             {
-              "expr": "sum(rate(diabetes_prediction_errors_total[1m])) / clamp_min(sum(rate(diabetes_prediction_errors_total[1m])) + sum(rate(diabetes_predictions_total[1m])), 0.001)",
+              "expr": "sum(rate(property_prediction_errors_total[1m])) / clamp_min(sum(rate(property_prediction_errors_total[1m])) + sum(rate(property_predictions_total[1m])), 0.001)",
               "legendFormat": "tasa de error",
               "refId": "A"
             }
