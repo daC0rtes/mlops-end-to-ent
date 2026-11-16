@@ -4,7 +4,7 @@ metadata:
   name: streamlit-config
   namespace: mlops
 data:
-  API_BASE_URL: http://diabetes-api:8000
+  API_BASE_URL: http://property-api:8000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: streamlit
-          image: dac0rtes/mlops-streamlit@sha256:e32122033ffbf7d082c42ea5df5409ca08ea5f9bb07f9ea459f12b20703f9d88
+          image: dac0rtes/mlops-property-streamlit:sha-047605879732da436e73ed913b1b1da83b8675d8
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
