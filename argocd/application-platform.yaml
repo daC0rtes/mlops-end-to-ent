@@ -1,20 +1,18 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: data-api
+  name: mlops-platform
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/daC0rtes/mlops-end-to-ent.git
     targetRevision: main
-    path: k8s/base
-    directory:
-      include: data-api.yaml
+    path: k8s
   destination:
     server: https://kubernetes.default.svc
     namespace: mlops
   syncPolicy:
     automated:
-      prune: true
+      prune: false
       selfHeal: true
