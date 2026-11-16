@@ -4,7 +4,7 @@ metadata:
   name: streamlit-config
   namespace: mlops
 data:
-  API_BASE_URL: http://diabetes-api:8000
+  API_BASE_URL: http://property-api:8000
 ---
 apiVersion: apps/v1
 kind: Deployment

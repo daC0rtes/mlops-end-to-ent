@@ -7,3 +7,4 @@ resources:
   - base/api.yaml
   - base/prometheus.yaml
   - base/grafana.yaml
+  - base/streamlit.yaml

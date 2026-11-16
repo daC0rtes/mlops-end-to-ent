@@ -3,63 +3,25 @@ import os
 import requests
 import streamlit as st
 
-API_URL = os.getenv("API_BASE_URL", "http://diabetes-api:8000")
+API_URL = os.getenv("API_BASE_URL", "http://property-api:8000")
 
-EXAMPLE_PATIENT = {
-    "race": "Caucasian",
-    "gender": "Female",
-    "age": "[60-70)",
-    "admission_type_id": "1",
-    "discharge_disposition_id": "1",
-    "admission_source_id": "7",
-    "time_in_hospital": "3",
-    "num_lab_procedures": "45",
-    "num_procedures": "1",
-    "num_medications": "12",
-    "number_outpatient": "0",
-    "number_emergency": "0",
-    "number_inpatient": "0",
-    "diag_1": "250.83",
-    "diag_2": "401.9",
-    "diag_3": "272.4",
-    "number_diagnoses": "7",
-    "max_glu_serum": "None",
-    "A1Cresult": "None",
-    "metformin": "No",
-    "repaglinide": "No",
-    "nateglinide": "No",
-    "chlorpropamide": "No",
-    "glimepiride": "No",
-    "acetohexamide": "No",
-    "glipizide": "No",
-    "glyburide": "No",
-    "tolbutamide": "No",
-    "pioglitazone": "No",
-    "rosiglitazone": "No",
-    "acarbose": "No",
-    "miglitol": "No",
-    "troglitazone": "No",
-    "tolazamide": "No",
-    "examide": "No",
-    "citoglipton": "No",
-    "insulin": "Steady",
-    "glyburide-metformin": "No",
-    "glipizide-metformin": "No",
-    "glimepiride-pioglitazone": "No",
-    "metformin-rosiglitazone": "No",
-    "metformin-pioglitazone": "No",
-    "change": "No",
-    "diabetesMed": "Yes",
+EXAMPLE_PROPERTY = {
+    "brokered_by": 101640,
+    "bed": 4,
+    "bath": 2.0,
+    "acre_lot": 0.38,
+    "street": 1758218,
+    "zip_code": 6016,
+    "house_size": 1617,
+    "prev_sold_year": 1999,
+    "status": "for_sale",
+    "city": "East Windsor",
+    "state": "Connecticut",
 }
 
-st.set_page_config(
-    page_title="Diabetes Readmission",
-    page_icon="🩺",
-    layout="wide",
-)
-
-st.title("🩺 Predicción de readmisión temprana")
-st.caption("La interfaz consume exclusivamente la API FastAPI desplegada en Kubernetes.")
+st.set_page_config(page_title="Property Price MLOps", page_icon="🏠", layout="wide")
+st.title("🏠 Estimación de precio inmobiliario")
+st.caption("La interfaz consulta exclusivamente la API desplegada en Kubernetes.")
 
 
 @st.cache_data(ttl=60)
@@ -80,36 +42,48 @@ st.info(
     f"alias `{info['alias']}` · versión `{info['version']}`"
 )
 
-if st.button("Cargar valores de ejemplo"):
-    for field, value in EXAMPLE_PATIENT.items():
-        st.session_state[f"field_{field}"] = value
+with st.form("property_prediction"):
+    st.subheader("Características del inmueble")
+    col1, col2, col3 = st.columns(3)
 
-with st.form("prediction_form"):
-    st.subheader("Datos del paciente")
+    with col1:
+        brokered_by = st.number_input("Broker ID", min_value=0, value=EXAMPLE_PROPERTY["brokered_by"], step=1)
+        bed = st.number_input("Habitaciones", min_value=0, value=EXAMPLE_PROPERTY["bed"], step=1)
+        bath = st.number_input("Baños", min_value=0.0, value=EXAMPLE_PROPERTY["bath"], step=0.5)
+        acre_lot = st.number_input("Área del lote (acres)", min_value=0.0, value=EXAMPLE_PROPERTY["acre_lot"], step=0.01, format="%.2f")
 
-    columns = st.columns(3)
-    values = {}
+    with col2:
+        street = st.number_input("Street ID", min_value=0, value=EXAMPLE_PROPERTY["street"], step=1)
+        zip_code = st.number_input("Código postal", min_value=0, value=EXAMPLE_PROPERTY["zip_code"], step=1)
+        house_size = st.number_input("Área construida (ft²)", min_value=0, value=EXAMPLE_PROPERTY["house_size"], step=1)
+        prev_sold_year = st.number_input("Año de última venta", min_value=1900, max_value=2026, value=EXAMPLE_PROPERTY["prev_sold_year"], step=1)
 
-    for index, field in enumerate(info["expected_columns"]):
-        with columns[index % 3]:
-            values[field] = st.text_input(
-                field,
-                value=EXAMPLE_PATIENT.get(field, ""),
-                key=f"field_{field}",
-            )
+    with col3:
+        status = st.selectbox("Estado", ["for_sale", "sold", "ready_to_build"], index=0)
+        city = st.text_input("Ciudad", value=EXAMPLE_PROPERTY["city"])
+        state = st.text_input("Estado / región", value=EXAMPLE_PROPERTY["state"])
 
-    submitted = st.form_submit_button("Predecir readmisión")
+    submitted = st.form_submit_button("Estimar precio")
 
 if submitted:
-    try:
-        response = requests.post(
-            f"{API_URL}/predict",
-            json={"features": values},
-            timeout=30,
-        )
+    features = {
+        "brokered_by": brokered_by,
+        "bed": bed,
+        "bath": bath,
+        "acre_lot": acre_lot,
+        "street": street,
+        "zip_code": zip_code,
+        "house_size": house_size,
+        "prev_sold_year": prev_sold_year,
+        "status": status,
+        "city": city,
+        "state": state,
+    }
 
+    try:
+        response = requests.post(f"{API_URL}/predict", json={"features": features}, timeout=30)
         if response.status_code == 422:
-            st.error("Los datos no cumplen el formato esperado.")
+            st.error("Los datos no cumplen el contrato del modelo.")
             st.json(response.json())
         else:
             response.raise_for_status()
@@ -117,23 +91,13 @@ if submitted:
 
             st.success("Predicción generada y registrada para auditoría.")
             result_columns = st.columns(3)
-            result_columns[0].metric(
-                "Predicción",
-                result["prediction"].replace("_", " "),
-            )
-            result_columns[1].metric(
-                "Probabilidad de readmisión <30 días",
-                f"{result['early_readmission_probability']:.2%}",
-            )
-            result_columns[2].metric(
-                "Latencia",
-                f"{result['latency_ms']:.2f} ms",
-            )
+            result_columns[0].metric("Precio estimado", f"${result['predicted_price']:,.0f}")
+            result_columns[1].metric("Latencia", f"{result['latency_ms']:.2f} ms")
+            result_columns[2].metric("Versión de modelo", result["model_version"])
 
             st.caption(
                 f"Request ID: `{result['request_id']}` · "
-                f"Modelo: `{result['model_name']}` v{result['model_version']}"
+                f"Modelo: `{result['model_name']}`"
             )
-
     except requests.RequestException as error:
         st.error(f"Error al consultar la API: {error}")
