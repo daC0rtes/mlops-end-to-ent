@@ -1,33 +1,33 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: diabetes-api-config
+  name: property-api-config
   namespace: mlops
 data:
   MLFLOW_TRACKING_URI: http://mlflow:5000
   MLFLOW_S3_ENDPOINT_URL: http://minio:9000
   AWS_DEFAULT_REGION: us-east-1
-  MODEL_NAME: diabetes_readmission
+  MODEL_NAME: property_price_model
   MODEL_ALIAS: champion
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: diabetes-api
+  name: property-api
   namespace: mlops
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: diabetes-api
+      app: property-api
   template:
     metadata:
       labels:
-        app: diabetes-api
+        app: property-api
     spec:
       containers:
-        - name: diabetes-api
-          image: dac0rtes/mlops-diabetes-api@sha256:f100a75fb73d4b7f0129357d0ce4c09cec79e0c86edee4995e601de194142d1e
+        - name: property-api
+          image: dac0rtes/mlops-property-api:sha-72ddb8f2accf078ef039eb6ccae7f26e2cc069e8
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -46,27 +46,27 @@ spec:
             - name: MLFLOW_TRACKING_URI
               valueFrom:
                 configMapKeyRef:
-                  name: diabetes-api-config
+                  name: property-api-config
                   key: MLFLOW_TRACKING_URI
             - name: MLFLOW_S3_ENDPOINT_URL
               valueFrom:
                 configMapKeyRef:
-                  name: diabetes-api-config
+                  name: property-api-config
                   key: MLFLOW_S3_ENDPOINT_URL
             - name: AWS_DEFAULT_REGION
               valueFrom:
                 configMapKeyRef:
-                  name: diabetes-api-config
+                  name: property-api-config
                   key: AWS_DEFAULT_REGION
             - name: MODEL_NAME
               valueFrom:
                 configMapKeyRef:
-                  name: diabetes-api-config
+                  name: property-api-config
                   key: MODEL_NAME
             - name: MODEL_ALIAS
               valueFrom:
                 configMapKeyRef:
-                  name: diabetes-api-config
+                  name: property-api-config
                   key: MODEL_ALIAS
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
@@ -89,23 +89,23 @@ spec:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 25
+            initialDelaySeconds: 45
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90
             periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: diabetes-api
+  name: property-api
   namespace: mlops
 spec:
   selector:
-    app: diabetes-api
+    app: property-api
   ports:
     - name: http
       port: 8000
