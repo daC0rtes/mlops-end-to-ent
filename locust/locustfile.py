@@ -1,61 +1,28 @@
 from locust import HttpUser, between, task
 
-EXAMPLE_PATIENT = {
-    "race": "Caucasian",
-    "gender": "Female",
-    "age": "[60-70)",
-    "admission_type_id": "1",
-    "discharge_disposition_id": "1",
-    "admission_source_id": "7",
-    "time_in_hospital": "3",
-    "num_lab_procedures": "45",
-    "num_procedures": "1",
-    "num_medications": "12",
-    "number_outpatient": "0",
-    "number_emergency": "0",
-    "number_inpatient": "0",
-    "diag_1": "250.83",
-    "diag_2": "401.9",
-    "diag_3": "272.4",
-    "number_diagnoses": "7",
-    "max_glu_serum": "None",
-    "A1Cresult": "None",
-    "metformin": "No",
-    "repaglinide": "No",
-    "nateglinide": "No",
-    "chlorpropamide": "No",
-    "glimepiride": "No",
-    "acetohexamide": "No",
-    "glipizide": "No",
-    "glyburide": "No",
-    "tolbutamide": "No",
-    "pioglitazone": "No",
-    "rosiglitazone": "No",
-    "acarbose": "No",
-    "miglitol": "No",
-    "troglitazone": "No",
-    "tolazamide": "No",
-    "examide": "No",
-    "citoglipton": "No",
-    "insulin": "Steady",
-    "glyburide-metformin": "No",
-    "glipizide-metformin": "No",
-    "glimepiride-pioglitazone": "No",
-    "metformin-rosiglitazone": "No",
-    "metformin-pioglitazone": "No",
-    "change": "No",
-    "diabetesMed": "Yes",
+EXAMPLE_PROPERTY = {
+    "brokered_by": 101640,
+    "bed": 4,
+    "bath": 2.0,
+    "acre_lot": 0.38,
+    "street": 1758218,
+    "zip_code": 6016,
+    "house_size": 1617,
+    "prev_sold_year": 1999,
+    "status": "for_sale",
+    "city": "East Windsor",
+    "state": "Connecticut",
 }
 
 
-class DiabetesApiUser(HttpUser):
-    wait_time = between(0.1, 0.4)
+class PropertyApiUser(HttpUser):
+    wait_time = between(0.5, 1.5)
 
-    @task
-    def predict_readmission(self):
+    @task(4)
+    def predict_price(self):
         with self.client.post(
             "/predict",
-            json={"features": EXAMPLE_PATIENT},
+            json={"features": EXAMPLE_PROPERTY},
             name="/predict",
             catch_response=True,
         ) as response:
@@ -65,3 +32,7 @@ class DiabetesApiUser(HttpUser):
                 response.failure(
                     f"Estado inesperado: {response.status_code} - {response.text}"
                 )
+
+    @task(1)
+    def health(self):
+        self.client.get("/health", name="/health")
