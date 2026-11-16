@@ -1,0 +1,25 @@
+name: Build property trainer image
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    paths:
+      - "trainer/**"
+      - ".github/workflows/build-trainer.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./trainer
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/mlops-property-trainer:sha-${{ github.sha }}

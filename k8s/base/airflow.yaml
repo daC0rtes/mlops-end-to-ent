@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
         - name: scheduler
-          image: dac0rtes/mlops-airflow:sha-88e24fe946c7a43112bbee342fb5e9b520615cc5
+          image: dac0rtes/mlops-airflow:sha-4d12d29f3e523ad765004280169709391159fe70
           imagePullPolicy: IfNotPresent
           command:
             - bash
@@ -102,7 +102,7 @@ spec:
     spec:
       containers:
         - name: webserver
-          image: dac0rtes/mlops-airflow:sha-88e24fe946c7a43112bbee342fb5e9b520615cc5
+          image: dac0rtes/mlops-airflow:sha-4d12d29f3e523ad765004280169709391159fe70
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
