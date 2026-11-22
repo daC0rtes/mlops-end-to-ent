@@ -9,3 +9,4 @@ resources:
   - base/grafana.yaml
   - base/streamlit.yaml
   - base/locust.yaml
+  - base/jupyter.yaml
