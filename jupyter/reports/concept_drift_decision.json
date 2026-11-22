@@ -1,0 +1,10 @@
+{
+  "assessed_at": "2026-11-22T16:36:19.190955+00:00",
+  "reference_batch": "group-5-batch-4",
+  "current_batch": "group-5-batch-5",
+  "training_baseline_mae": 41027.94082558441,
+  "current_batch_mae": 941216.0545742317,
+  "mae_multiplier": 22.940855320413824,
+  "decision": "review_data_quality_and_train_candidate",
+  "promotion": "not_automatic"
+}
