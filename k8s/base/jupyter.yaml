@@ -50,6 +50,11 @@ spec:
                 secretKeyRef:
                   name: postgres-credentials
                   key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow:5000
             - name: MLFLOW_S3_ENDPOINT_URL
