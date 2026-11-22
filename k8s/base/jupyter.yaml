@@ -29,7 +29,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: jupyterlab
-          image: dac0rtes/mlops-jupyter:sha-55cb90cc049a1800834584d3ee1fa3dff242db5d
+          image: dac0rtes/mlops-jupyter:sha-f5102f92c6cf443a5da72e53b1d5f7bb1088b2fe
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
