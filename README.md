@@ -89,6 +89,14 @@ GitHub Actions construyó la imagen de Airflow y la publicó en Docker Hub con u
 
 ![GitHub Actions y Docker Hub](docs/evidence/03-ci-dockerhub-airflow.png)
 
+La ejecución reciente confirma que los workflows de Airflow, JupyterLab, API, Streamlit y entrenamiento finalizan correctamente sobre las ramas de trabajo y `main`.
+
+![Workflows exitosos de GitHub Actions](docs/evidence/04-github-actions-successful-workflows.png)
+
+El trabajo se integró mediante Pull Requests cerrados y fusionados, conservando una historia auditable de funcionalidades, correcciones y evidencias.
+
+![Pull Requests fusionados del proyecto](docs/evidence/05-github-pull-requests-merged.png)
+
 ---
 
 ## 🥉🥈🥇 Capas de datos
