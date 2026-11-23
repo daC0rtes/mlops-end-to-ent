@@ -69,6 +69,28 @@ Nuevo lote de datos
 
 ---
 
+## 📸 Evidencia funcional
+
+### GitOps: plataforma sincronizada
+
+Argo CD observa `main/k8s`, aplica los manifiestos y mantiene la plataforma en estado `Synced / Healthy`. El árbol confirma que Airflow, Data API, JupyterLab, serving, observabilidad y Streamlit están desplegados como recursos administrados.
+
+![Argo CD: plataforma Healthy y Synced](docs/evidence/01-argocd-platform-healthy.png)
+
+### Prueba de carga y observabilidad
+
+Locust ejecutó 705 solicitudes contra `property-api`, con 0 fallos y 5,2 RPS agregados. Grafana recibió las métricas Prometheus del mismo intervalo: 569 predicciones exitosas, modelo champion cargado y latencia p95 de 47,69 ms.
+
+![Locust y Grafana durante prueba de carga](docs/evidence/02-load-test-grafana-locust.png)
+
+### Integración continua e imágenes inmutables
+
+GitHub Actions construyó la imagen de Airflow y la publicó en Docker Hub con un tag SHA inmutable. Este patrón permite identificar exactamente qué versión fue desplegada.
+
+![GitHub Actions y Docker Hub](docs/evidence/03-ci-dockerhub-airflow.png)
+
+---
+
 ## 🥉🥈🥇 Capas de datos
 
 | Capa | Tabla | Propósito |
@@ -169,7 +191,7 @@ Para API y Streamlit, un push a `main` construye la imagen, actualiza automátic
 La Application `mlops-platform` observa `main/k8s` y se validó como **Synced / Healthy**. El archivo `k8s/kustomization.yaml` define los servicios que Argo administra:
 
 ```text
-data-api · Airflow · property-api · Prometheus · Grafana · Streamlit · Locust
+data-api · Airflow · property-api · Prometheus · Grafana · Streamlit · Locust · JupyterLab
 ```
 
 El Job de entrenamiento está deliberadamente fuera de esa lista: una sincronización GitOps no debe relanzar un entrenamiento por accidente.
