@@ -8,7 +8,7 @@ from typing import Any
 import mlflow
 import mlflow.sklearn
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from mlflow import MlflowClient
 from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
@@ -82,6 +82,50 @@ def model_info():
         "version": state["model_version"],
         "expected_columns": state["expected_columns"],
     }
+
+
+@app.get("/training-history")
+def training_history(limit: int = Query(default=20, ge=1, le=50)):
+    """Return one latest recorded training decision per ingested batch."""
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("SET TRANSACTION READ ONLY"))
+            connection.execute(text("SET LOCAL statement_timeout = '3s'"))
+            if not connection.scalar(text("SELECT to_regclass('mlops.property_training_runs')")):
+                return {"items": []}
+            result = connection.execute(text("""
+                WITH recent_batches AS (
+                    SELECT batch_id, record_count, retrieved_at
+                    FROM raw.property_batches
+                    ORDER BY retrieved_at DESC, batch_id DESC
+                    LIMIT :limit
+                )
+                SELECT b.batch_id, b.record_count AS raw_rows, a.gold_records AS gold_rows,
+                       COALESCE(r.status, 'no_training_record') AS status,
+                       r.mode, r.assessment->>'reason' AS training_reason,
+                       r.comparison->>'reason' AS comparison_reason,
+                       r.comparison->'mae_delta_fraction' AS mae_delta_fraction,
+                       r.comparison->'rmse_delta_fraction' AS rmse_delta_fraction,
+                       r.comparison->>'run_id' AS mlflow_run_id,
+                       r.comparison->>'candidate_version' AS candidate_version,
+                       r.comparison->>'champion_version' AS champion_version,
+                       r.comparison->'promoted' AS promoted,
+                       r.job_name, r.updated_at
+                FROM recent_batches b
+                LEFT JOIN mlops.batch_audit a ON a.batch_id = b.batch_id
+                LEFT JOIN LATERAL (
+                    SELECT status, mode, assessment, comparison, job_name, updated_at
+                    FROM mlops.property_training_runs
+                    WHERE batch_id = b.batch_id
+                    ORDER BY updated_at DESC, dag_id, run_id
+                    LIMIT 1
+                ) r ON true
+                ORDER BY b.retrieved_at DESC, b.batch_id DESC
+            """), {"limit": limit})
+            return {"items": [dict(row) for row in result.mappings()]}
+    except Exception as exc:
+        logger.exception("No se pudo cargar el historial de entrenamiento")
+        raise HTTPException(status_code=503, detail="Historial temporalmente no disponible.") from exc
 
 
 @app.post("/predict")
