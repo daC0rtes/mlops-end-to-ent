@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: property-api
-          image: dac0rtes/mlops-property-api:sha-bc93ecf76fe693bf0e9d17eecea98d6a62a7d41a
+          image: dac0rtes/mlops-property-api:sha-dbd09a29e4619a4e91af0d22128369852fb68c87
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
