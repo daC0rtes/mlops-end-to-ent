@@ -30,10 +30,19 @@ spec:
       labels:
         app: airflow-scheduler
     spec:
+      serviceAccountName: airflow-candidate-jobs
+      volumes:
+        - name: candidate-job-template
+          configMap:
+            name: property-candidate-job-template
       containers:
         - name: scheduler
           image: dac0rtes/mlops-airflow:sha-10f6d1d8e278b0b3439177f78cfb61da9bc4e851
           imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: candidate-job-template
+              mountPath: /opt/airflow/job-templates
+              readOnly: true
           command:
             - bash
             - -ec
