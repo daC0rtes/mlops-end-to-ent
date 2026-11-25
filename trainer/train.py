@@ -52,9 +52,9 @@ def load_splits(engine, batch_id):
         WHERE batch_id = :batch_id
           AND target_price > 0
           AND target_price < 'Infinity'::double precision
-          AND (get_byte(decode(md5(clean_id::text || ':split-v1'), 'hex'), 0) % 10)
+          AND (get_byte(decode(md5(clean_id::text || :split_salt), 'hex'), 0) % 10)
               BETWEEN :first_bucket AND :last_bucket
-        ORDER BY md5(clean_id::text || ':sample-v1'), clean_id
+        ORDER BY md5(clean_id::text || :sample_salt), clean_id
         LIMIT :row_limit
     """)
     splits = {}
@@ -70,6 +70,8 @@ def load_splits(engine, batch_id):
         }.items():
             frame = pd.read_sql(query, conn, params={
                 "batch_id": batch_id,
+                "split_salt": ":split-v1",
+                "sample_salt": ":sample-v1",
                 "first_bucket": first,
                 "last_bucket": last,
                 "row_limit": ROWS_PER_SPLIT[name],
