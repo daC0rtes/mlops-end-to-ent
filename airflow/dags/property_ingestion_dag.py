@@ -14,6 +14,7 @@ from airflow import DAG
 from airflow.decorators import task
 from airflow.operators.python import get_current_context
 from psycopg2.extras import execute_values
+from property_training_job import job_name, run_candidate
 
 API_URL = os.getenv("DATA_API_URL", "http://data-api.mlops.svc.cluster.local/data")
 GROUP_NUMBER = int(os.getenv("DATA_API_GROUP", "5"))
@@ -156,6 +157,102 @@ def training_assessment(batch_id):
             "new_category_row_share": NEW_CATEGORY_RATE_THRESHOLD,
         },
     }
+
+
+def persist_training(assessment, mode, status, training_job=None, comparison=None):
+    context = get_current_context()
+    dag_run = context["dag_run"]
+    with closing(connection()) as conn, conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS mlops.property_training_runs (
+                dag_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                batch_id TEXT NOT NULL REFERENCES raw.property_batches(batch_id),
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                assessment JSONB NOT NULL,
+                job_name TEXT,
+                comparison JSONB,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (dag_id, run_id)
+            )
+        """)
+        cur.execute("""
+            INSERT INTO mlops.property_training_runs
+                (dag_id, run_id, batch_id, mode, status, assessment, job_name, comparison)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
+            ON CONFLICT (dag_id, run_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                assessment = EXCLUDED.assessment,
+                job_name = COALESCE(EXCLUDED.job_name, mlops.property_training_runs.job_name),
+                comparison = COALESCE(EXCLUDED.comparison, mlops.property_training_runs.comparison),
+                updated_at = NOW()
+        """, (
+            dag_run.dag_id, dag_run.run_id, assessment["batch_id"], mode, status,
+            json.dumps(assessment), training_job,
+            json.dumps(comparison) if comparison is not None else None,
+        ))
+        if mode == "ingestion":
+            cur.execute("""
+                UPDATE mlops.batch_audit
+                SET validation_results = validation_results ||
+                    jsonb_build_object('training_assessment', %s::jsonb),
+                    training_decision = %s, decision_reason = %s, result = %s,
+                    updated_at = NOW()
+                WHERE batch_id = %s
+            """, (
+                json.dumps(assessment), assessment["decision"], assessment["reason"],
+                status, assessment["batch_id"],
+            ))
+            if cur.rowcount != 1:
+                raise ValueError("No se pudo actualizar la auditoría del lote.")
+
+
+def training_flow(assessment, mode):
+    @task.branch
+    def decide_training(result):
+        return {"eligible": "train_candidate", "skip": "skip_training"}[result["decision"]]
+
+    @task
+    def skip_training(result):
+        persist_training(result, mode, "training_skipped")
+        print(json.dumps(result, ensure_ascii=False))
+
+    @task(execution_timeout=timedelta(minutes=23))
+    def train_candidate(result):
+        dag_run = get_current_context()["dag_run"]
+        name = job_name(dag_run.dag_id, dag_run.run_id)
+        cached = mode == "replay" and dag_run.conf.get("use_cached_runtime") is True
+        persist_training(result, mode, "training_started", training_job=name)
+        try:
+            report = run_candidate(name, result, cached)
+        except Exception:
+            persist_training(result, mode, "training_failed", training_job=name)
+            raise
+        persist_training(result, mode, "candidate_compared", training_job=name, comparison=report)
+        print(json.dumps(report, ensure_ascii=False))
+        return report
+
+    @task.branch
+    def decide_promotion(report):
+        return {
+            "eligible_for_promotion": "hold_promotion",
+            "rejected": "record_rejection",
+        }[report["decision"]]
+
+    @task
+    def hold_promotion(result, report):
+        persist_training(result, mode, "promotion_held", comparison=report)
+
+    @task
+    def record_rejection(result, report):
+        persist_training(result, mode, "candidate_rejected", comparison=report)
+
+    decision = decide_training(assessment)
+    candidate = train_candidate(assessment)
+    decision >> [candidate, skip_training(assessment)]
+    promotion = decide_promotion(candidate)
+    promotion >> [hold_promotion(assessment, candidate), record_rejection(assessment, candidate)]
 
 
 with DAG(
@@ -494,47 +591,13 @@ with DAG(
         print(json.dumps(assessment, ensure_ascii=False))
         return assessment
 
-    @task.branch
-    def decide_training(assessment):
-        return {
-            "eligible": "record_eligible_for_training",
-            "skip": "skip_training",
-        }[assessment["decision"]]
-
-    def record_training_decision(assessment, result):
-        with closing(connection()) as conn, conn, conn.cursor() as cur:
-            cur.execute("""
-                UPDATE mlops.batch_audit
-                SET validation_results = validation_results ||
-                    jsonb_build_object('training_assessment', %s::jsonb),
-                    training_decision = %s,
-                    decision_reason = %s,
-                    result = %s,
-                    updated_at = NOW()
-                WHERE batch_id = %s
-            """, (
-                json.dumps(assessment), assessment["decision"],
-                assessment["reason"], result, assessment["batch_id"],
-            ))
-            if cur.rowcount != 1:
-                raise ValueError("No se pudo actualizar la auditoría del lote.")
-
-    @task
-    def record_eligible_for_training(assessment):
-        record_training_decision(assessment, "training_eligible_pending")
-
-    @task
-    def skip_training(assessment):
-        record_training_decision(assessment, "training_skipped")
-
     prepare = prepare_storage()
     bronze = fetch_bronze_batch()
     validated = validate_bronze(bronze)
     silver = build_silver(validated)
     gold = build_gold(silver)
     assessment = assess_training(gold)
-    decision = decide_training(assessment)
-    decision >> [record_eligible_for_training(assessment), skip_training(assessment)]
+    training_flow(assessment, "ingestion")
 
     prepare >> bronze >> validated >> silver >> gold
 
@@ -558,3 +621,24 @@ with DAG(
         return assessment
 
     preview_assessment()
+
+
+with DAG(
+    dag_id="property_training_replay",
+    start_date=datetime(2026, 11, 1),
+    schedule=None,
+    catchup=False,
+    max_active_runs=1,
+    tags=["mlops", "properties", "historical-replay"],
+) as replay_dag:
+
+    @task
+    def assess_existing_batch():
+        batch_id = get_current_context()["dag_run"].conf.get("batch_id")
+        if not isinstance(batch_id, str) or not batch_id:
+            raise ValueError("Indica un batch_id ya procesado en Gold.")
+        result = training_assessment(batch_id)
+        print(json.dumps(result, ensure_ascii=False))
+        return result
+
+    training_flow(assess_existing_batch(), "replay")
