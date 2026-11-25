@@ -59,7 +59,7 @@ flowchart TB
 ```text
 Nuevo lote de datos
   → Airflow: Bronze → validación → Silver → Gold
-  → Job de entrenamiento
+  → Job de entrenamiento ejecutado por separado sobre Gold
   → MLflow: versión y alias champion
   → FastAPI: /predict, auditoría y métricas
   → Streamlit y Locust consumen la API
@@ -89,13 +89,33 @@ GitHub Actions construyó la imagen de Airflow y la publicó en Docker Hub con u
 
 ![GitHub Actions y Docker Hub](docs/evidence/03-ci-dockerhub-airflow.png)
 
-La ejecución reciente confirma que los workflows de Airflow, JupyterLab, API, Streamlit y entrenamiento finalizan correctamente sobre las ramas de trabajo y `main`.
+El panel lista los workflows de las imágenes propias. Las ejecuciones visibles en verde corresponden a JupyterLab y Streamlit; la captura anterior muestra además el build de Airflow y su tag en Docker Hub.
 
 ![Workflows exitosos de GitHub Actions](docs/evidence/04-github-actions-successful-workflows.png)
 
 El trabajo se integró mediante Pull Requests cerrados y fusionados, conservando una historia auditable de funcionalidades, correcciones y evidencias.
 
 ![Pull Requests fusionados del proyecto](docs/evidence/05-github-pull-requests-merged.png)
+
+### Airflow y trazabilidad por lote
+
+La ejecución seleccionada de `property_batch_ingestion` completó las cinco tareas hasta Gold. El historial también conserva ejecuciones con otros estados.
+
+![Airflow: ejecución completada hasta Gold](docs/evidence/06-airflow-medallion.png)
+
+La consulta de auditoría cruza el identificador de Bronze con los conteos de Silver y Gold. La captura registra un corte histórico: `group-5-batch-4` alcanzó Gold con 320.696 filas.
+
+![PostgreSQL: conteos por capa para el mismo lote](docs/evidence/07-postgres-batch-trace.png)
+
+### MLflow y exploración en JupyterLab
+
+El experimento `property_price_regression` reúne el entrenamiento que originó `property_price_model` v1, los runs de EDA y la evaluación de drift del lote 5.
+
+![MLflow: listado de runs y modelo registrado v1](docs/evidence/08-mlflow-property-runs.png)
+
+El reporte Sweetviz, generado en JupyterLab a partir de 10.000 filas de Gold, quedó guardado como artefacto en MLflow. El histograma de `target_price` caracteriza la referencia inicial.
+
+![Sweetviz: distribución del precio en la muestra Gold](docs/evidence/09-mlflow-sweetviz.png)
 
 ---
 
@@ -144,7 +164,9 @@ MLflow registra parámetros, métricas, contrato de datos y el artefacto del mod
 models:/property_price_model@champion
 ```
 
-Esto separa el código de serving de la versión concreta del modelo: si se promueve una versión nueva, FastAPI puede cargar el alias `champion` sin cambiar su contrato.
+FastAPI resuelve el alias y carga el modelo al iniciar el proceso. En esta versión, cambiar el alias en MLflow requiere reiniciar el proceso para cargar la nueva versión.
+
+La [bitácora de experimentación](jupyter/notebooks/README.md) documenta la comparación de los lotes 4 y 5. El MAE del champion pasó de aproximadamente 40.678 en la muestra del lote 4 a 941.216 en la del lote 5. Ambos lotes comparten 53 estados; la diferencia observada incluye el segmento de precios y cambios en la distribución de las características. Los candidatos que mejoraron el lote 5 deterioraron el lote 4, así que la evaluación experimental conservó el champion v1. El DAG desplegado llega a Gold; el análisis de drift y esta decisión se hicieron en JupyterLab.
 
 ---
 
@@ -254,7 +276,8 @@ kubectl -n argocd get applications
 | Servicio | URL | Port-forward |
 |---|---|---|
 | FastAPI / Swagger | `http://IP_VM:8010/docs` | `svc/property-api 8010:8000` |
-| MLflow | `http://IP_VM:8001` | `svc/mlflow 8001:5000` |
+| MLflow | `http://IP_VM:8012` | `svc/mlflow 8012:5000` |
+| JupyterLab | `http://IP_VM:8011/lab` | `svc/jupyterlab 8011:8888` |
 | Prometheus | `http://IP_VM:8003` | `svc/prometheus 8003:9090` |
 | Grafana | `http://IP_VM:8004` | `svc/grafana 8004:3000` |
 | Streamlit | `http://IP_VM:8005` | `svc/streamlit 8005:8501` |
