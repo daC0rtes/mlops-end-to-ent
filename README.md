@@ -117,6 +117,12 @@ El reporte Sweetviz, generado en JupyterLab a partir de 10.000 filas de Gold, qu
 
 ![Sweetviz: distribución del precio en la muestra Gold](docs/evidence/09-mlflow-sweetviz.png)
 
+### Decisión de entrenamiento por lote en Airflow
+
+El DAG de vista previa consultó dos lotes históricos en Gold. El lote 4 devolvió `skip` porque su auditoría no confirmaba la calidad de Bronze. El lote 5 devolvió `eligible`: la variación total de `house_size` frente al lote 4 fue 0,2773, superior al umbral de 0,20. Las nuevas ciudades representaron el 4,48 % de las filas con ciudad, por debajo del umbral de 10 %. La vista previa opera en solo lectura.
+
+![Airflow: comparación de los XCom del lote 4 y del lote 5](docs/evidence/10-airflow-xcom-batch-decisions.png)
+
 ---
 
 ## 🥉🥈🥇 Capas de datos
@@ -142,6 +148,8 @@ prepare_storage
   → validate_bronze
   → build_silver
   → build_gold
+  → assess_training
+  → decide_training → skip_training / record_eligible_for_training
 ```
 
 Controles incluidos:
@@ -166,7 +174,20 @@ models:/property_price_model@champion
 
 FastAPI resuelve el alias y carga el modelo al iniciar el proceso. En esta versión, cambiar el alias en MLflow requiere reiniciar el proceso para cargar la nueva versión.
 
-La [bitácora de experimentación](jupyter/notebooks/README.md) documenta la comparación de los lotes 4 y 5. El MAE del champion pasó de aproximadamente 40.678 en la muestra del lote 4 a 941.216 en la del lote 5. Ambos lotes comparten 53 estados; la diferencia observada incluye el segmento de precios y cambios en la distribución de las características. Los candidatos que mejoraron el lote 5 deterioraron el lote 4, así que la evaluación experimental conservó el champion v1. El DAG desplegado llega a Gold; el análisis de drift y esta decisión se hicieron en JupyterLab.
+La [bitácora de experimentación](jupyter/notebooks/README.md) documenta el cambio de distribución entre los lotes 4 y 5 y los primeros candidatos evaluados en JupyterLab. En una prueba posterior, el Job de Kubernetes ejecutó el entrenador con el lote 5, reutilizando la imagen local de JupyterLab para evitar otra descarga en el nodo. El lanzamiento del Job fue manual; Airflow registró por separado la evaluación de elegibilidad.
+
+El Job reservó un conjunto de prueba mediante una partición determinista por `clean_id` y evaluó en él al candidato v2 y al champion v1. La regla exige al menos 3 % de mejora en MAE y que el RMSE no empeore más de 1 %. Se prioriza MAE porque expresa directamente el error absoluto de precio; RMSE limita el deterioro ante errores grandes.
+
+| Métrica en el test del lote 5 | Champion v1 | Candidato v2 | Reducción |
+|---|---:|---:|---:|
+| MAE | 722.391 | 374.534 | 48,15 % |
+| RMSE | 1.560.576 | 1.009.044 | 35,34 % |
+
+El run `10d1f09cc7f549ba824fe3eb12d64cf0` registró `eligible_for_promotion` y conservó v1 como `champion`. El resultado corresponde al test del lote 5; la exposición histórica del champion a esas filas quedó sin verificar.
+
+![MLflow: comparación en el mismo test del lote 5 y decisión registrada](docs/evidence/11-mlflow-champion-candidate-comparison.png)
+
+![MLflow Model Registry: candidato v2 registrado y alias champion en v1](docs/evidence/12-mlflow-model-registry.png)
 
 ---
 
