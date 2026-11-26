@@ -245,6 +245,12 @@ La interfaz consulta `property-api`. La vista de **Predicción** muestra el prec
 
 ![Streamlit: predicción de ejemplo con champion v1 y Request ID](docs/evidence/16-streamlit-prediction.png)
 
+### Auditoría, recursos y monitoreo en servicio
+
+La pantalla dividida cruza la predicción de Streamlit con su fila en PostgreSQL consultada desde JupyterLab. El Request ID `56b42fba-8e38-4d11-ad4e-e21515b28356` vincula la petición con el precio guardado de **359.645,29**, la latencia de **105,14 ms** y la versión **1**. Argo CD muestra la configuración en vivo de la API: reserva **250m de CPU y 512 MiB de RAM**, con límites de **1 CPU y 1 GiB**. Prometheus muestra el target `property-api` en **UP** y la métrica `property_served_model_info` identifica el alias `champion` y la versión **1**.
+
+![Prometheus: target y versión activa; Argo CD: recursos; JupyterLab: registro de inferencia](docs/evidence/19-auditoria-recursos-y-monitoreo.png)
+
 ---
 
 ## 📈 Observabilidad y carga
@@ -253,7 +259,9 @@ La interfaz consulta `property-api`. La vista de **Predicción** muestra el prec
 - **Grafana** muestra predicciones, errores, estado del modelo `champion`, latencia p95 y tasa de error.
 - **Locust** simula usuarios contra el Service interno `property-api:8000`; 80% de las tareas usan `/predict` y 20% `/health`.
 
-La carga se mantiene controlada para la VM: se recomienda iniciar con 5 usuarios y tasa de spawn 1 usuario/segundo.
+La carga se mantiene controlada para la VM: se recomienda iniciar con 5 usuarios y tasa de incorporación de 1 usuario por segundo. La corrida observada atendió 705 solicitudes sin fallos y el panel de Grafana mostró un p95 de 47,69 ms. La medición de 105,14 ms de la captura de auditoría corresponde a una predicción individual en otro momento. Para estimar el punto de saturación harían falta escalones adicionales de carga y una serie simultánea de CPU y memoria.
+
+Los recursos de la API se leen en Argo CD. El manifiesto de bootstrap de MinIO declara reservas y límites para su contenedor de configuración y el de creación del bucket. El Job se ejecuta por separado del despliegue habitual.
 
 ---
 
