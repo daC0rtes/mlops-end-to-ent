@@ -20,6 +20,7 @@ El despliegue está diseñado para una VM de recursos limitados: K3s, almacenami
 - DAG `property_batch_ingestion` ejecutado exitosamente con persistencia Bronze, Silver y Gold.
 - Reproducción histórica con Airflow: lote 4 omitido y lote 5 entrenado, auditado y registrado en MLflow como candidato v3.
 - Modelo `property_price_model`, versión **1**, alias **`champion`** en MLflow.
+- Recarga de FastAPI verificada con un cambio temporal **v1 → v3 → v1**, en el mismo pod y con cero reinicios.
 - Primera evaluación: **MAE 41.027,94**, **RMSE 49.531,39** y **R² 0,2332**.
 - API de predicción, interfaz Streamlit, Prometheus, Grafana y Locust conectados al caso de precios.
 - Cadena de despliegue demostrada: `push a main → GitHub Actions → Docker Hub → manifiesto GitOps → Argo CD → K3s`.
@@ -193,7 +194,7 @@ MLflow registra parámetros, métricas, contrato de datos y el artefacto del mod
 models:/property_price_model@champion
 ```
 
-FastAPI resuelve el alias y carga el modelo al iniciar el proceso. En esta versión, cambiar el alias en MLflow requiere reiniciar el proceso para cargar la nueva versión.
+FastAPI resuelve el alias al iniciar y lo consulta periódicamente en MLflow (cada 60 s por defecto). Ante un cambio, descarga la versión exacta, comprueba el contrato de columnas y vuelve a verificar el alias antes de reemplazar el modelo en memoria. Cada solicitud usa un único modelo y su versión durante toda la inferencia y la auditoría. Si falla la recarga, la versión activa sigue atendiendo.
 
 La [bitácora de experimentación](jupyter/notebooks/README.md) documenta el cambio de distribución entre los lotes 4 y 5 y los primeros candidatos evaluados en JupyterLab. En un primer ensayo se lanzó manualmente el Job que registró v2. En el replay posterior, Airflow lanzó el Job que registró v3. Ambos ensayos reutilizaron la imagen local de JupyterLab para evitar otra descarga en el nodo. El champion siguió en v1.
 
@@ -224,9 +225,17 @@ El run `10d1f09cc7f549ba824fe3eb12d64cf0` registró `eligible_for_promotion` y c
 | `GET /model-info` | Nombre, alias, versión y variables esperadas. |
 | `GET /training-history` | Última decisión registrada por lote, con comparación y referencia al run de MLflow. |
 | `POST /predict` | Valida el contrato, estima precio y registra auditoría. |
-| `GET /metrics` | Métricas Prometheus de predicciones, errores, latencia y modelo cargado. |
+| `GET /metrics` | Métricas Prometheus de predicciones, errores y latencia, versión activa (`property_served_model_info`) y fallos de recarga. |
 
 Cada inferencia guarda `request_id`, payload, precio estimado, modelo, versión y latencia en `mlops.inference_logs`.
+
+#### Recarga sin redespliegue
+
+En una prueba controlada, se verificó que v3 aceptaba el contrato del formulario y se apuntó temporalmente el alias `champion` a esa versión. `/model-info` pasó de v1 a v3. Al restaurar el alias, la API volvió a v1. El pod mantuvo el UID `e122bb42-7c62-415f-96cb-ab7aeb7d0b51` y reportó cero reinicios. La prueba demuestra el cambio en el proceso activo; v3 se probó como sustitución temporal, y v1 quedó en producción. El resultado de evaluación de v3 corresponde al lote 5.
+
+![FastAPI antes de la prueba: champion v1, imagen desplegada y UID del pod](docs/evidence/17-api-champion-before.png)
+
+![FastAPI durante la prueba: v1, v3 y vuelta a v1 con el mismo UID y cero reinicios](docs/evidence/18-api-reload-and-rollback.png)
 
 ### Streamlit
 
