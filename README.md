@@ -129,6 +129,12 @@ El DAG de vista previa consultó dos lotes históricos en Gold. El lote 4 devolv
 
 ![Airflow: comparación de los XCom del lote 4 y del lote 5](docs/evidence/10-airflow-xcom-batch-decisions.png)
 
+En la corrida de vista previa del 26 de noviembre de 2026 a las 23:38 UTC, Airflow verificó la calidad de `house_size` en Gold antes de comparar los lotes. El lote 4 pasó como referencia con 320.671 tamaños válidos de 320.696 (99,99 %) y el lote 5 tuvo 361.270 de 361.457 (99,95 %). La regla exige al menos 5.000 tamaños válidos y 95 % de cobertura. Un tamaño válido es mayor que 0 y de hasta 20.000 pies cuadrados. El control de Gold y la confirmación histórica de Bronze se evalúan por separado.
+
+El XCom registró 682.153 filas Gold acumuladas y una variación total de 0,2771 frente al umbral de 0,20. Airflow devolvió `eligible` con el motivo `house_size_distribution_changed`. Las 1.715 ciudades nuevas representaron el 4,48 % de las filas con ciudad, por debajo del umbral del 10 %. La corrida se limitó a evaluar la elegibilidad.
+
+![Airflow: XCom del lote 5 con cobertura válida en Gold, volumen acumulado y decisión](docs/evidence/20-airflow-reference-quality.png)
+
 ### Entrenamiento orquestado y trazabilidad
 
 Dos ejecuciones del DAG `property_training_replay` reutilizaron lotes ya persistidos. La del lote 4 ejecutó `skip_training`. En la del lote 5, `train_candidate` lanzó el Job de Kubernetes y `hold_promotion` registró el resultado sin modificar el alias productivo. La ruta de ingesta y el replay comparten la lógica de decisión y entrenamiento. Estas dos capturas provienen del replay histórico.
