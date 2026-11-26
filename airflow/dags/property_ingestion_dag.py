@@ -21,6 +21,8 @@ GROUP_NUMBER = int(os.getenv("DATA_API_GROUP", "5"))
 MIN_TRAINING_ROWS = 5000
 HOUSE_SIZE_DRIFT_THRESHOLD = 0.20
 NEW_CATEGORY_RATE_THRESHOLD = 0.10
+MAX_HOUSE_SIZE_SQFT = 20000
+MIN_HOUSE_SIZE_COVERAGE = 0.95
 
 
 def connection():
@@ -32,13 +34,28 @@ def connection():
     )
 
 
+def house_size_quality(rows, non_null_rows, outside_range_rows):
+    valid_rows = non_null_rows - outside_range_rows
+    coverage = valid_rows / rows if rows else 0.0
+    return {
+        "gold_rows": rows,
+        "valid_house_size_rows": valid_rows,
+        "missing_house_size_rows": rows - non_null_rows,
+        "outside_range_rows": outside_range_rows,
+        "valid_coverage": coverage,
+        "passed": (
+            valid_rows >= MIN_TRAINING_ROWS and coverage >= MIN_HOUSE_SIZE_COVERAGE
+        ),
+    }
+
+
 def training_assessment(batch_id):
     """Compare one Gold batch against the last completed, earlier batch."""
     with closing(connection()) as conn, conn, conn.cursor() as cur:
         cur.execute("SET TRANSACTION READ ONLY")
         cur.execute("""
             SELECT b.record_count, a.validation_results, a.silver_records,
-                   previous.batch_id
+                   previous.batch_id, past.gold_rows, past.gold_batches
             FROM raw.property_batches b
             JOIN mlops.batch_audit a ON a.batch_id = b.batch_id
             LEFT JOIN LATERAL (
@@ -51,37 +68,52 @@ def training_assessment(batch_id):
                 ORDER BY old.source_batch_number DESC
                 LIMIT 1
             ) previous ON TRUE
+            CROSS JOIN LATERAL (
+                SELECT COALESCE(sum(history.gold_records), 0) AS gold_rows,
+                       count(*) FILTER (WHERE history.gold_records > 0) AS gold_batches
+                FROM raw.property_batches old
+                JOIN mlops.batch_audit history ON history.batch_id = old.batch_id
+                WHERE old.group_number = b.group_number
+                  AND old.source_batch_number < b.source_batch_number
+            ) past
             WHERE b.batch_id = %s
         """, (MIN_TRAINING_ROWS, batch_id))
         audit = cur.fetchone()
         if audit is None:
             raise ValueError(f"No hay auditoría para el lote {batch_id}.")
-        raw_rows, validation, silver_rows, reference_id = audit
+        raw_rows, validation, silver_rows, reference_id, past_rows, past_batches = audit
 
         cur.execute("""
             SELECT batch_id, count(*), count(house_size), count(*)
-                FILTER (WHERE house_size <= 0 OR house_size > 20000)
+                FILTER (WHERE house_size <= 0 OR house_size > %s)
             FROM gold.property_training_features
             WHERE batch_id IN (%s, %s)
             GROUP BY batch_id
-        """, (batch_id, reference_id))
+        """, (MAX_HOUSE_SIZE_SQFT, batch_id, reference_id))
         coverage = {row[0]: row[1:] for row in cur.fetchall()}
         row_count, sized_rows, unusual_sizes = coverage.get(batch_id, (0, 0, 0))
-        reference_count = coverage.get(reference_id, (0, 0, 0))[0]
-        if reference_id and reference_count < MIN_TRAINING_ROWS:
-            raise ValueError(f"La referencia {reference_id} no contiene suficientes filas Gold.")
+        current_quality = house_size_quality(row_count, sized_rows, unusual_sizes)
+        reference_quality = (
+            house_size_quality(*coverage.get(reference_id, (0, 0, 0)))
+            if reference_id else None
+        )
+        reference_count = reference_quality["gold_rows"] if reference_quality else 0
 
         house_size_drift = None
         category_changes = {}
-        if reference_id and row_count >= MIN_TRAINING_ROWS and validation.get("quality_passed") is True:
+        can_compare = (
+            reference_quality is not None and reference_quality["passed"]
+            and row_count >= MIN_TRAINING_ROWS and validation.get("quality_passed") is True
+        )
+        if can_compare and current_quality["passed"]:
             cur.execute("""
                 SELECT batch_id,
                     width_bucket(house_size, ARRAY[1000, 1500, 2000, 2500, 3500, 5000]::double precision[]),
                     count(*)
                 FROM gold.property_training_features
-                WHERE batch_id IN (%s, %s) AND house_size > 0
+                WHERE batch_id IN (%s, %s) AND house_size > 0 AND house_size <= %s
                 GROUP BY 1, 2
-            """, (batch_id, reference_id))
+            """, (batch_id, reference_id, MAX_HOUSE_SIZE_SQFT))
             distributions = {batch_id: {}, reference_id: {}}
             for lot, bucket, count in cur.fetchall():
                 distributions[lot][bucket] = count
@@ -94,6 +126,7 @@ def training_assessment(batch_id):
                     for bucket in current.keys() | reference.keys()
                 )
 
+        if can_compare:
             cur.execute("""
                 WITH counts AS (
                     SELECT g.batch_id, v.feature, v.category, count(*) AS n
@@ -127,6 +160,8 @@ def training_assessment(batch_id):
         decision, reason = "skip", "insufficient_gold_rows"
     elif not reference_id:
         decision, reason = "eligible", "first_sufficient_batch"
+    elif not reference_quality["passed"]:
+        decision, reason = "skip", "reference_quality_not_confirmed"
     elif house_size_drift is not None and house_size_drift >= HOUSE_SIZE_DRIFT_THRESHOLD:
         decision, reason = "eligible", "house_size_distribution_changed"
     elif any(item["row_share"] >= NEW_CATEGORY_RATE_THRESHOLD
@@ -145,6 +180,11 @@ def training_assessment(batch_id):
         "raw_rows": raw_rows,
         "gold_rows": row_count,
         "reference_gold_rows": reference_count,
+        "current_house_size_quality": current_quality,
+        "reference_house_size_quality": reference_quality,
+        "historical_gold_rows": past_rows,
+        "historical_gold_batches": past_batches,
+        "accumulated_gold_rows": past_rows + row_count,
         "gold_rows_vs_reference": row_count / reference_count if reference_count else None,
         "raw_to_silver_row_loss": raw_rows - silver_rows if silver_rows is not None else None,
         "missing_house_size": row_count - sized_rows,
@@ -153,6 +193,8 @@ def training_assessment(batch_id):
         "new_categories": category_changes,
         "thresholds": {
             "min_gold_rows": MIN_TRAINING_ROWS,
+            "min_valid_house_size_coverage": MIN_HOUSE_SIZE_COVERAGE,
+            "max_house_size_sqft": MAX_HOUSE_SIZE_SQFT,
             "house_size_total_variation": HOUSE_SIZE_DRIFT_THRESHOLD,
             "new_category_row_share": NEW_CATEGORY_RATE_THRESHOLD,
         },
