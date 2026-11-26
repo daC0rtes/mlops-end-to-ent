@@ -18,6 +18,7 @@ El despliegue está diseñado para una VM de recursos limitados: K3s, almacenami
 
 - Ingesta incremental real desde `cristiandiaz13/mlops-puj:data-api-pf-v2`, grupo 5.
 - DAG `property_batch_ingestion` ejecutado exitosamente con persistencia Bronze, Silver y Gold.
+- Reproducción histórica con Airflow: lote 4 omitido y lote 5 entrenado, auditado y registrado en MLflow como candidato v3.
 - Modelo `property_price_model`, versión **1**, alias **`champion`** en MLflow.
 - Primera evaluación: **MAE 41.027,94**, **RMSE 49.531,39** y **R² 0,2332**.
 - API de predicción, interfaz Streamlit, Prometheus, Grafana y Locust conectados al caso de precios.
@@ -35,13 +36,17 @@ flowchart TB
         AF --> BR[(PostgreSQL<br/>Bronze / raw)]
         BR --> SI[(PostgreSQL<br/>Silver / clean)]
         SI --> GO[(PostgreSQL<br/>Gold)]
-        GO --> TR[Job de entrenamiento]
+        GO --> DEC[Airflow: decisión por lote]
+        DEC -->|Elegible| TR[Job de entrenamiento]
+        DEC -->|Omitido| HIST[(PostgreSQL: historial por lote)]
+        TR --> HIST
         TR --> MLF[MLflow Model Registry]
         MLF --> MINIO[MinIO / artefactos]
 
         API[FastAPI<br/>property-api] --> MLF
         API --> LOGS[(PostgreSQL<br/>inference_logs)]
         ST[Streamlit] --> API
+        API -->|Historial| HIST
         LOC[Locust] --> API
         PROM[Prometheus] -->|scrape /metrics| API
         GRAF[Grafana] --> PROM
@@ -59,7 +64,7 @@ flowchart TB
 ```text
 Nuevo lote de datos
   → Airflow: Bronze → validación → Silver → Gold
-  → Job de entrenamiento ejecutado por separado sobre Gold
+  → Airflow decide si omite o dispara el Job de entrenamiento
   → MLflow: versión y alias champion
   → FastAPI: /predict, auditoría y métricas
   → Streamlit y Locust consumen la API
@@ -123,6 +128,19 @@ El DAG de vista previa consultó dos lotes históricos en Gold. El lote 4 devolv
 
 ![Airflow: comparación de los XCom del lote 4 y del lote 5](docs/evidence/10-airflow-xcom-batch-decisions.png)
 
+### Entrenamiento orquestado y trazabilidad
+
+Dos ejecuciones del DAG `property_training_replay` reutilizaron lotes ya persistidos. La del lote 4 ejecutó `skip_training`. En la del lote 5, `train_candidate` lanzó el Job de Kubernetes y `hold_promotion` registró el resultado sin modificar el alias productivo. La ruta de ingesta y el replay comparten la lógica de decisión y entrenamiento. Estas dos capturas provienen del replay histórico.
+
+![Airflow: lote 4, rama de omisión](docs/evidence/13-airflow-replay-batch-4-skip.png)
+
+![Airflow: lote 5, entrenamiento y promoción en revisión](docs/evidence/14-airflow-replay-batch-5-train.png)
+
+| Lote | Estado en `mlops.property_training_runs` | Job de Kubernetes | Run de MLflow | Versión candidata |
+|---|---|---|---|---|
+| `group-5-batch-4` | `training_skipped` | — | — | — |
+| `group-5-batch-5` | `promotion_held` | `property-candidate-67141ada4ef7e8aac380f504` | `2d61d2a8135a47aba1b55694728da368` | v3 |
+
 ---
 
 ## 🥉🥈🥇 Capas de datos
@@ -133,6 +151,7 @@ El DAG de vista previa consultó dos lotes históricos en Gold. El lote 4 devolv
 | Silver / CLEAN | `clean.property_records` | Registros normalizados y deduplicados por `row_hash`. |
 | Gold | `gold.property_training_features` | Variables tipadas listas para entrenar el modelo de precio. |
 | Auditoría | `mlops.batch_audit` | Esquema recibido, validaciones, conteos y resultado por lote. |
+| Historial de entrenamiento | `mlops.property_training_runs` | Decisión por ejecución, modo, Job, comparación y run de MLflow. |
 
 La respuesta RAW se almacena como `TEXT`, no como JSONB completo. Un lote real de 16,4 MB produjo `OOMKilled` al transformarlo directamente en PostgreSQL con 1 GiB; conservar el cuerpo original y transformar por etapas controla el consumo de memoria.
 
@@ -149,7 +168,9 @@ prepare_storage
   → build_silver
   → build_gold
   → assess_training
-  → decide_training → skip_training / record_eligible_for_training
+  → decide_training
+    ├─ skip_training
+    └─ train_candidate → decide_promotion → hold_promotion / record_rejection
 ```
 
 Controles incluidos:
@@ -174,7 +195,7 @@ models:/property_price_model@champion
 
 FastAPI resuelve el alias y carga el modelo al iniciar el proceso. En esta versión, cambiar el alias en MLflow requiere reiniciar el proceso para cargar la nueva versión.
 
-La [bitácora de experimentación](jupyter/notebooks/README.md) documenta el cambio de distribución entre los lotes 4 y 5 y los primeros candidatos evaluados en JupyterLab. En una prueba posterior, el Job de Kubernetes ejecutó el entrenador con el lote 5, reutilizando la imagen local de JupyterLab para evitar otra descarga en el nodo. El lanzamiento del Job fue manual; Airflow registró por separado la evaluación de elegibilidad.
+La [bitácora de experimentación](jupyter/notebooks/README.md) documenta el cambio de distribución entre los lotes 4 y 5 y los primeros candidatos evaluados en JupyterLab. En un primer ensayo se lanzó manualmente el Job que registró v2. En el replay posterior, Airflow lanzó el Job que registró v3. Ambos ensayos reutilizaron la imagen local de JupyterLab para evitar otra descarga en el nodo. El champion siguió en v1.
 
 El Job reservó un conjunto de prueba mediante una partición determinista por `clean_id` y evaluó en él al candidato v2 y al champion v1. La regla exige al menos 3 % de mejora en MAE y que el RMSE no empeore más de 1 %. Se prioriza MAE porque expresa directamente el error absoluto de precio; RMSE limita el deterioro ante errores grandes.
 
@@ -201,6 +222,7 @@ El run `10d1f09cc7f549ba824fe3eb12d64cf0` registró `eligible_for_promotion` y c
 |---|---|
 | `GET /health` | Comprueba disponibilidad de PostgreSQL y del modelo. |
 | `GET /model-info` | Nombre, alias, versión y variables esperadas. |
+| `GET /training-history` | Última decisión registrada por lote, con comparación y referencia al run de MLflow. |
 | `POST /predict` | Valida el contrato, estima precio y registra auditoría. |
 | `GET /metrics` | Métricas Prometheus de predicciones, errores, latencia y modelo cargado. |
 
@@ -208,7 +230,11 @@ Cada inferencia guarda `request_id`, payload, precio estimado, modelo, versión 
 
 ### Streamlit
 
-La interfaz solicita las características del inmueble y consume exclusivamente `property-api`. No se conecta directamente a PostgreSQL, MinIO ni MLflow.
+La interfaz consulta `property-api`. La vista de **Predicción** muestra el precio estimado, la latencia, la versión usada y el identificador de la solicitud. **Historial por lote** muestra la última decisión registrada, los motivos, las variaciones de MAE y RMSE, las versiones y el run de MLflow. Los lotes anteriores sin registro de entrenamiento aparecen como **Sin decisión registrada**.
+
+![Streamlit: historial por lote con omisión y promoción en revisión](docs/evidence/15-streamlit-training-history.png)
+
+![Streamlit: predicción de ejemplo con champion v1 y Request ID](docs/evidence/16-streamlit-prediction.png)
 
 ---
 
