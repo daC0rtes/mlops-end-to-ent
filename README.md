@@ -18,7 +18,7 @@ El despliegue está diseñado para una VM de recursos limitados: K3s, almacenami
 
 - Ingesta incremental real desde `cristiandiaz13/mlops-puj:data-api-pf-v2`, grupo 5.
 - DAG `property_batch_ingestion` ejecutado exitosamente con persistencia Bronze, Silver y Gold.
-- Reproducción histórica con Airflow: lote 4 omitido y lote 5 entrenado, auditado y registrado en MLflow como candidato v3.
+- Reproducción histórica con Airflow: lote 4 omitido y lote 5 entrenado y registrado en MLflow. La ejecución con la imagen publicada generó el candidato v4 y dejó la promoción en revisión.
 - Modelo `property_price_model`, versión **1**, alias **`champion`** en MLflow.
 - Recarga de FastAPI verificada con un cambio temporal **v1 → v3 → v1**, en el mismo pod y con cero reinicios.
 - Primera evaluación: **MAE 41.027,94**, **RMSE 49.531,39** y **R² 0,2332**.
@@ -137,7 +137,7 @@ El XCom registró 682.153 filas Gold acumuladas y una variación total de 0,2771
 
 ### Entrenamiento orquestado y trazabilidad
 
-Dos ejecuciones del DAG `property_training_replay` reutilizaron lotes ya persistidos. La del lote 4 ejecutó `skip_training`. En la del lote 5, `train_candidate` lanzó el Job de Kubernetes y `hold_promotion` registró el resultado sin modificar el alias productivo. La ruta de ingesta y el replay comparten la lógica de decisión y entrenamiento. Estas dos capturas provienen del replay histórico.
+En las primeras ejecuciones del DAG `property_training_replay`, se reutilizaron lotes ya persistidos. La del lote 4 ejecutó `skip_training`. En la del lote 5, `train_candidate` lanzó el Job de Kubernetes y `hold_promotion` registró el resultado sin modificar el alias productivo. La ruta de ingesta y el replay comparten la lógica de decisión y entrenamiento.
 
 ![Airflow: lote 4, rama de omisión](docs/evidence/13-airflow-replay-batch-4-skip.png)
 
@@ -147,6 +147,12 @@ Dos ejecuciones del DAG `property_training_replay` reutilizaron lotes ya persist
 |---|---|---|---|---|
 | `group-5-batch-4` | `training_skipped` | — | — | — |
 | `group-5-batch-5` | `promotion_held` | `property-candidate-67141ada4ef7e8aac380f504` | `2d61d2a8135a47aba1b55694728da368` | v3 |
+
+En la corrida del **26 de noviembre de 2026 a las 19:08:12 de Bogotá** (27 de noviembre a las 00:08:12 UTC), Airflow volvió a evaluar `group-5-batch-5` con `use_cached_runtime=false`. Esta configuración selecciona la imagen `dac0rtes/mlops-property-trainer:sha-f5d57f01948919b8487b437114534d66d6432b0b` en el Job. La captura vincula el XCom de `train_candidate` con el run `e2a61ef831154e8f8a1732a38fc39c38` de MLflow, que registra el lote, el SHA del entrenador y el motivo `house_size_distribution_changed`.
+
+Sobre el mismo conjunto de prueba del lote 5, el candidato v4 bajó el **MAE de 722.390,84 a 374.534,05 (48,15 %)** y el **RMSE de 1.560.576,20 a 1.009.044,44 (35,34 %)** frente al champion v1. El resultado `eligible_for_promotion` activó `hold_promotion`. El XCom registra `promoted: false` y MLflow muestra `promotion_mode: held_for_review`. La comparación corresponde a este lote y la exposición histórica del champion a las filas de prueba sigue sin verificarse.
+
+![Airflow y MLflow: replay exitoso del lote 5, SHA del entrenador y comparación del candidato v4 con el champion v1](docs/evidence/21-airflow-mlflow-replay-batch-5.png)
 
 ---
 
