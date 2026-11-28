@@ -1,5 +1,7 @@
 # 🏠 Proyecto Final MLOps: predicción de precios inmobiliarios
 
+**Video de sustentación:** [Ver la presentación del proyecto en YouTube](https://youtu.be/q6_7yfhtR1M)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Kubernetes-K3s-326CE5?logo=kubernetes&logoColor=white" alt="K3s" />
   <img src="https://img.shields.io/badge/Apache%20Airflow-Orquestación-017CEE?logo=apache-airflow&logoColor=white" alt="Airflow" />
